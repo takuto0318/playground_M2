@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TreeMatchLib Playground</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style_transform.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>TreeMatchLib Playground</h1>
+            <p class="subtitle">Interactive tree pattern matching environment</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- 左カラム：入力エリア（パターンとターゲットツリーを入力する） -->
+        <div class="left-column">
+            <!-- パターン入力セクション
+                 ユーザーがマッチさせたいパターンを入力する欄 -->
+            <section class="input-section pattern-section">
+                <div class="section-header">
+                    <label for="pattern-input">PATTERN</label>  <!-- パターン入力のラベル -->
+                    <div class="header-right">
+                        <!-- 履歴ボタン：過去に使ったパターンを呼び出せる時計アイコン -->
+                        <button id="history-btn" class="btn-icon" title="Pattern History">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M8 2v6l4 2M14 8A6 6 0 1 1 2 8a6 6 0 0 1 12 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                        <!-- モード切替：TreeMatch（先頭から1回マッチ）かTreeMatchFind（全ノードを探索）か選ぶ -->
+                        <div class="mode-toggle">
+                            <label class="radio-label">
+                                <input type="radio" name="match-mode" value="TreeMatch" checked>
+                                <span>TreeMatch</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="match-mode" value="TreeMatchFind">
+                                <span>TreeMatchFind</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-with-copy">
+                    <textarea id="pattern-input" placeholder="A > B##x C" rows="3"></textarea>
+                    <!-- パターンをクリップボードにコピーするボタン -->
+                    <button id="copy-pattern-btn" class="copy-btn" title="Copy Pattern">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <rect x="5" y="5" width="9" height="9" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                            <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- 履歴ドロップダウン：過去に実行したパターンの一覧
+                     デフォルトは非表示。履歴ボタンを押すと表示される -->
+                <div id="history-dropdown" class="history-dropdown" style="display: none;">
+                    <div class="history-header">
+                        <span>Recent Patterns</span>
+                        <button id="clear-history-btn" class="btn-text">Clear All</button>
+                    </div>
+                    <div id="history-list" class="history-list">
+                        <p class="history-empty">No pattern history yet</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ターゲットツリー入力セクション
+                 マッチ対象となるツリー構造を TreeConstruct 形式で入力する欄 -->
+            <section class="input-section target-section">
+                <div class="section-header">
+                    <label for="target-input">TARGET (TreeConstruct format)</label>
+                    <div class="sample-controls">
+                        <!-- サンプル読み込みボタン：デフォルトのサンプルを素早くロードする -->
+                        <button id="sample-btn" class="btn-sample">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Load Sample
+                        </button>
+                        <!-- サンプルメニューボタン：カテゴリ別のサンプル一覧を表示する -->
+                        <button id="samples-menu-btn" class="btn-icon" title="Browse Samples">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <rect x="3" y="3" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                <rect x="9" y="3" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                <rect x="3" y="9" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                <rect x="9" y="9" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <textarea id="target-input" placeholder="A > B C D" rows="8"></textarea>
+
+                <!-- サンプルメニュー：カテゴリ別のサンプルパターン一覧
+                     デフォルトは非表示。サンプルメニューボタンを押すと表示される -->
+                <div id="samples-menu" class="samples-menu" style="display: none;">
+                    <div class="samples-menu-header">
+                        <span>Sample Patterns</span>
+                    </div>
+                    <div id="samples-list" class="samples-list"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- 右カラム：結果表示エリア（マッチ結果・ツリー可視化・デバッグなど） -->
+        <div class="right-column">
+            <section class="result-section">  <!--  結果表示セクション。マッチ結果のテキスト表示、ツリーの視覚化、デバッグ情報などをタブで切り替えて表示するエリア
+                 タブ切替と内容表示はJavaScriptで制御する -->
+                <div class="section-header">
+                    <label>OUTPUT</label>
+                    <div class="header-right">
+                        <!-- 結果をJSON形式でコピーするボタン -->
+                        <button id="copy-result-btn" class="btn-icon" title="Copy Result (JSON)">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                <rect x="5" y="5" width="9" height="9" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                            </svg>
+                        </button>
+                        <!-- タブ切替ボタン：Result / Tree Visualization / Debug / Code Import / Transform -->
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-tab="result">Result</button>
+                            <button class="tab-btn" data-tab="tree-viz">Tree Visualization</button>
+                            <button class="tab-btn" data-tab="debug">Debug</button>
+                            <button class="tab-btn" data-tab="code-import">Code Import</button>
+                            <button class="tab-btn" data-tab="transform">Transform</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- タブのコンテンツ領域（JavaScriptでactiveクラスを切り替えて表示を制御） -->
+
+                <!-- Resultタブ：マッチ結果のテキスト表示 -->
+                <div class="tab-content active" id="tab-result">
+                    <div id="result-area" class="result-area">
+                        <div class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
+                                <path d="M16 24l6 6 10-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <p>Enter pattern and target to see results</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tree Visualizationタブ：SVGでツリー構造を視覚的に描画する -->
+                <div class="tab-content" id="tab-tree-viz">
+                    <div class="tree-viz-area">
+                        <div class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
+                                <path d="M12 24h24M24 12v24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <p>Tree visualization will appear here</p>
+                        </div>
+                        <!-- ツリーをSVGで描画するキャンバス -->
+                        <svg id="tree-svg" width="100%" height="500" xmlns="http://www.w3.org/2000/svg">
+                            <g id="tree-group" transform="scale(1,1)"></g>
+                        </svg>
+                        <!-- ズームコントロール：拡大・縮小・リセットボタン
+                             ツリーが表示されるまでは非表示にしておく -->
+                        <div id="zoom-controls" class="zoom-controls" style="display: none;">
+                            <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <span id="zoom-level" class="zoom-level">100%</span>
+                            <button id="zoom-out-btn" class="zoom-btn" title="Zoom Out">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button id="zoom-reset-btn" class="zoom-btn" title="Reset Zoom">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Debugタブ：パターンマッチングの処理過程をアニメーションで確認できる -->
+                <div class="tab-content" id="tab-debug">
+                    <div class="debug-area">
+                        <div class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
+                                <path d="M24 16v12M24 32v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <p>Run a pattern match to see debug visualization</p>
+                        </div>
+
+                        <!-- デバッグ再生コントロール：Play/Pause/Reset と速度調整
+                             デバッグデータが生成されるまでは非表示 -->
+                        <div id="debug-controls" class="debug-controls" style="display: none;">
+                            <div class="control-row">
+                                <button id="play-btn" class="control-btn">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M4 3l8 5-8 5V3z" fill="currentColor"/>
+                                    </svg>
+                                    Play
+                                </button>
+                                <!-- 一時停止ボタン：再生中のみ表示される -->
+                                <button id="pause-btn" class="control-btn" style="display: none;">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <rect x="4" y="3" width="3" height="10" fill="currentColor"/>
+                                        <rect x="9" y="3" width="3" height="10" fill="currentColor"/>
+                                    </svg>
+                                    Pause
+                                </button>
+                                <button id="reset-btn" class="control-btn">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M4 8a4 4 0 018 0M8 4V2M8 4L6 6M8 4l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    Reset
+                                </button>
+                                <!-- 再生速度の切り替えボタン（0.5倍・1倍・2倍） -->
+                                <div class="speed-control">
+                                    <label>Speed:</label>
+                                    <button class="speed-btn" data-speed="0.5">0.5x</button>
+                                    <button class="speed-btn active" data-speed="1">1x</button>
+                                    <button class="speed-btn" data-speed="2">2x</button>
+                                </div>
+                            </div>
+                            <!-- 進捗バー：全ステップ中の現在位置を視覚的に表示 -->
+                            <div class="progress-row">
+                                <div class="progress-bar">
+                                    <div id="progress-fill" class="progress-fill"></div>
+                                </div>
+                                <span id="progress-text" class="progress-text">0/0</span>
+                            </div>
+                        </div>
+
+                        <!-- 現在のステップ情報表示：何ステップ目で何をしているか、マッチ状況を表示
+                             デバッグ再生中のみ表示される -->
+                        <div id="step-display" class="step-display" style="display: none;">
+                            <div class="step-header">Current Step</div>
+                            <div id="step-content" class="step-content">
+                                <div class="step-number">Step 1/6</div>
+                                <div class="step-action">Checking pattern...</div>
+                                <div class="step-status">Status: Processing</div>
+                            </div>
+                            <!-- キャプチャ状態の表示：現在どのノードがキャプチャされているかを確認できる -->
+                            <div id="capture-state" class="capture-state">
+                                <div class="capture-state-header">現在のキャプチャ状態</div>
+                                <div id="capture-state-content" class="capture-state-content">
+                                    <!-- キャプチャ状態はJavaScriptで動的に挿入される -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- アニメーション付きツリー可視化エリア
+                             デバッグ再生時にノードが順番にハイライトされる -->
+                        <div id="debug-tree-container" class="debug-tree-container" style="display: none;">
+                            <svg id="debug-tree-svg" width="800" height="500" xmlns="http://www.w3.org/2000/svg">
+                                <g id="debug-tree-group"></g>
+                            </svg>
+                            <!-- デバッグツリー専用のズームコントロール -->
+                            <div id="debug-zoom-controls" class="zoom-controls">
+                                <button id="debug-zoom-in-btn" class="zoom-btn" title="Zoom In">
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                        <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                                <span id="debug-zoom-level" class="zoom-level">100%</span>
+                                <button id="debug-zoom-out-btn" class="zoom-btn" title="Zoom Out">
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                        <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                                <button id="debug-zoom-reset-btn" class="zoom-btn" title="Reset Zoom">
+                                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                        <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Code Importタブ：JavaScriptなどのソースコードをASTに変換してツリーとして読み込む機能 -->
+                <div class="tab-content" id="tab-code-import">
+                    <div class="code-import-area">
+                        <div class="import-controls">
+                            <div class="control-header">
+                                <label>Language</label>
+                                <!-- 言語選択ボタン：現在はJavaScriptのみ対応（C・Pythonは準備中） -->
+                                <div class="language-selector">
+                                    <button class="lang-btn active" data-lang="javascript">JavaScript</button>
+                                    <button class="lang-btn" data-lang="c" disabled title="Coming soon">C</button>
+                                    <button class="lang-btn" data-lang="python" disabled title="Coming soon">Python</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- JSONファイルアップロード：acornなどで生成したASTのJSONファイルを直接読み込む -->
+                        <div class="json-upload-section">
+                            <label>Import AST from JSON</label>
+                            <div class="file-upload-area">
+                                <input type="file" id="json-file-input" accept=".json" style="display: none;">
+                                <button id="upload-json-btn" class="action-btn">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M8 12V3M8 3L5 6M8 3l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    </svg>
+                                    Upload JSON File
+                                </button>
+                                <span id="json-file-name" class="file-name"></span>
+                            </div>
+                        </div>
+
+                        <!-- 区切り線：JSONファイルとコード直接入力のどちらかを選べることを示す -->
+                        <div class="import-divider">
+                            <span>OR</span>
+                        </div>
+
+                        <!-- コード直接入力：JavaScriptコードをここに貼り付けてASTに変換する -->
+                        <div class="code-input-section">
+                            <label for="code-input">Code Input</label>
+                            <textarea id="code-input" class="code-input" placeholder="// Paste your JavaScript code here
+function add(a, b) {
+    if (a > 0) {
+        return a + b;
+    }
+    return 0;
+}" rows="12"></textarea>
+                            <div class="button-row">
+                                <!-- 「Parse to Tree」：入力コードをacornでパースしてツリー形式に変換する -->
+                                <button id="parse-code-btn" class="action-btn">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M12 5l-6 6-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    Parse to Tree
+                                </button>
+                                <button id="clear-code-btn" class="action-btn secondary">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- パース結果表示：変換されたツリーパターンの文字列を表示する
+                             パース完了後に表示される -->
+                        <div id="parse-result-section" class="parse-result-section" style="display: none;">
+                            <div class="result-header">
+                                <label>Generated Tree Pattern</label>
+                                <button id="copy-tree-pattern-btn" class="btn-icon" title="Copy Tree Pattern">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <rect x="5" y="5" width="9" height="9" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                        <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div id="tree-pattern-display" class="tree-pattern-display"></div>
+                            <div class="button-row">
+                                <!-- ターゲット欄に変換結果を転送するボタン -->
+                                <button id="use-as-target-btn" class="action-btn">Use as Target Tree</button>
+                                <!-- ASTのJSON全体を確認するボタン -->
+                                <button id="view-ast-btn" class="action-btn secondary">View AST (JSON)</button>
+                            </div>
+                        </div>
+
+                        <!-- AST全体の表示エリア：acornが生成したJSONをそのまま表示する
+                             「View AST」ボタンを押すと表示される -->
+                        <div id="ast-view-section" class="ast-view-section" style="display: none;">
+                            <div class="result-header">
+                                <label>Abstract Syntax Tree (AST)</label>
+                                <button id="close-ast-btn" class="btn-icon" title="Close">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <pre id="ast-display" class="ast-display"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transformタブ：マッチしたノードをIF文・TRY文などのテンプレートで変換する機能 -->
+                <div class="tab-content" id="tab-transform">
+                    <div class="transform-area">
+                        <div class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
+                                <path d="M16 24h16M24 16v16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <p>Match a pattern in Result tab, then come here to transform</p>
+                        </div>
+
+                        <!-- 変換コントロール（Transform Controls v2）
+                             Resultタブでマッチしてからこのタブに来ると表示される -->
+                        <div id="transform-controls" class="transform-controls" style="display: none;">
+                            <!-- ヘッダー：タイトルとマッチしたパターンを表示 -->
+                            <div class="transform-header">
+                                <h3>Transform Matched Node</h3>
+                                <div class="matched-pattern-info">
+                                    <span>Pattern: </span>
+                                    <code id="transform-pattern-display">-</code>
+                                </div>
+                            </div>
+
+                            <!-- 操作説明：ノードをドラッグするかカードをクリックするよう促すメッセージ -->
+                            <div class="transform-instruction">
+                                <p>👇 Drag the source node to a template card, or click a card to preview</p>
+                            </div>
+
+                            <!-- メインワークフロー：変換前 → テンプレート選択 → 変換後 の3ステップ -->
+                            <div class="transform-workflow">
+                                <!-- 変換前パネル：マッチしたノードのプレビューとドラッグ起点 -->
+                                <div class="workflow-panel before-panel">
+                                    <div class="panel-label">
+                                        <span class="label-icon">📦</span>
+                                        <span class="label-text">Source</span>
+                                    </div>
+                                    <!-- draggable="true" でドラッグ操作を有効にしている -->
+                                    <div id="source-node-box" class="source-node-box" draggable="true">
+                                        <div id="source-node-preview" class="node-preview-text"></div>
+                                        <div class="drag-hint">Drag me →</div>
+                                    </div>
+                                </div>
+
+                                <!-- テンプレート選択パネル：IF/TRY/FOR/削除の4種類のカード -->
+                                <div class="workflow-panel templates-panel">
+                                    <div class="panel-label">
+                                        <span class="label-icon">🔧</span>
+                                        <span class="label-text">Select Template</span>
+                                    </div>
+                                    <div class="template-cards">
+                                        <!-- IF文テンプレート：ノードをif > cond _##body の形で囲む -->
+                                        <div class="template-card" data-operation="wrap-if">
+                                            <div class="card-icon">🔀</div>
+                                            <div class="card-title">IF Statement</div>
+                                            <div class="card-pattern">if > cond _##body</div>
+                                            <div class="card-hover-overlay">Drop here</div>
+                                        </div>
+
+                                        <!-- TRY-CATCHテンプレート：ノードをtry > _##body (catch > ...) で囲む -->
+                                        <div class="template-card" data-operation="wrap-try">
+                                            <div class="card-icon">🛡️</div>
+                                            <div class="card-title">TRY-CATCH</div>
+                                            <div class="card-pattern">try > _##body (catch > ...)</div>
+                                            <div class="card-hover-overlay">Drop here</div>
+                                        </div>
+
+                                        <!-- FORループテンプレート：ノードをfor > init cond update _##body で囲む -->
+                                        <div class="template-card" data-operation="wrap-for">
+                                            <div class="card-icon">🔄</div>
+                                            <div class="card-title">FOR Loop</div>
+                                            <div class="card-pattern">for > init cond update _##body</div>
+                                            <div class="card-hover-overlay">Drop here</div>
+                                        </div>
+
+                                        <!-- 削除テンプレート：ノードをツリーから取り除く -->
+                                        <div class="template-card" data-operation="delete">
+                                            <div class="card-icon">🗑️</div>
+                                            <div class="card-title">Delete Node</div>
+                                            <div class="card-pattern">Remove from tree</div>
+                                            <div class="card-hover-overlay">Drop here</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 変換後パネル：テンプレート適用後のプレビューを表示する
+                                     テンプレートが選ばれるまでは非表示 -->
+                                <div class="workflow-panel after-panel" style="display: none;">
+                                    <div class="panel-label">
+                                        <span class="label-icon">✨</span>
+                                        <span class="label-text">Result Preview</span>
+                                    </div>
+                                    <div id="result-node-box" class="result-node-box">
+                                        <div id="result-node-preview" class="node-preview-text"></div>
+                                    </div>
+                                    <!-- 変換を確定するか、リセットするかを選ぶボタン -->
+                                    <div class="preview-actions">
+                                        <button id="apply-transform-btn" class="action-btn primary">
+                                            <span>✓</span> Apply Transform
+                                        </button>
+                                        <button id="reset-transform-btn" class="action-btn secondary">
+                                            <span>↺</span> Reset
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 生成コードセクション：変換後のTreeConstructコードを表示する
+                                 「Apply Transform」後に表示される -->
+                            <div id="generated-code-section" class="generated-code-section" style="display: none;">
+                                <div class="code-header">
+                                    <label>Generated TreeConstruct Code</label>
+                                    <div class="code-actions">
+                                        <!-- 生成コードをクリップボードにコピーするボタン -->
+                                        <button id="copy-transform-code-btn" class="btn-icon" title="Copy Code">
+                                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                <rect x="5" y="5" width="9" height="9" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                                <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                            </svg>
+                                        </button>
+                                        <!-- 生成コードをターゲット欄に転送するボタン -->
+                                        <button id="use-transform-as-target-btn" class="action-btn secondary">Use as Target</button>
+                                    </div>
+                                </div>
+                                <pre id="transform-code-display" class="code-display"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- acorn：JavaScriptのASTパーサーライブラリ（CDNから読み込む）
+         Code ImportタブでJSコードをASTに変換するために使用する -->
+    <script src="https://cdn.jsdelivr.net/npm/acorn@8/dist/acorn.js"></script>
+
+    <!-- TreeMatchLibとアプリ本体を読み込む
+         バージョンクエリ(?v=...)はブラウザキャッシュを無効化するためのもの -->
+    <script src="lib/TreeMatchLib.js"></script>
+    <script src="app.js?v=20251230-samples-final3"></script>
+</body>
+</html>
