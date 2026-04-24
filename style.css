@@ -1438,3 +1438,116 @@ textarea::placeholder {
     max-height: 400px;
     color: var(--text-primary);
 }
+
+/* ============================================
+   SVG ツリー色分け（マッチ・キャプチャ）
+   ============================================ */
+
+/* match カラー：rect の塗り・枠色 */
+#tree-svg rect.match-1 { fill: #dff7e5; stroke: #2f9e44; }
+#tree-svg rect.match-2 { fill: #fff4e5; stroke: #e67700; }
+#tree-svg rect.match-3 { fill: #f3d9fa; stroke: #9c36b5; }
+#tree-svg rect.match-4 { fill: #d0ebff; stroke: #1971c2; }
+
+/* match-root：マッチの起点ノードは太枠で強調 */
+#tree-svg rect.match-root { stroke-width: 4; }
+
+/* ホバー時のアクティブ／ディム */
+#tree-svg rect.is-active  { stroke-width: 4; }
+#tree-svg rect.is-dimmed  { opacity: 0.18; }
+#tree-svg text.is-dimmed  { opacity: 0.18; }
+
+/* capture ホバー時の発光 */
+#tree-svg rect.capture-active {
+    filter: drop-shadow(0 0 5px rgba(100, 80, 220, 0.55));
+}
+
+/* バッジ（cap-badge-group）*/
+/* rx は JS 側で setAttribute('rx', 7) しているので CSS には書かない */
+#tree-svg .cap-badge-group rect {
+    stroke: none;
+}
+#tree-svg .cap-badge-group text {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    fill: #fff;
+    pointer-events: none;
+}
+
+/* ============================================
+   SVG 凡例（#svg-match-legend）
+   ============================================ */
+#svg-match-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem 0.25rem;
+    background: var(--bg-elevated, #f8f9fa);
+    border-bottom: 1px solid var(--border-color, #dee2e6);
+    font-size: 0.82rem;
+}
+
+.svg-legend-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 120px;
+}
+
+.svg-legend-title {
+    font-weight: 700;
+    color: var(--text-secondary, #6c757d);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.svg-legend-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.svg-legend-match-item,
+.svg-legend-capture-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+    font-size: 0.8rem;
+    color: var(--text-primary, #212529);
+}
+
+.svg-legend-match-item:hover,
+.svg-legend-capture-item:hover {
+    background: rgba(0,0,0,0.06);
+    border-color: var(--border-color, #dee2e6);
+}
+
+/* 凡例チップのホバー強調（active）と減衰（dim）
+   JS が classList.toggle('active', ...) / classList.toggle('dim', ...) で制御する */
+.svg-legend-match-item.active,
+.svg-legend-capture-item.active {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: var(--primary-color, #3b82f6);
+    font-weight: 700;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.svg-legend-match-item.dim,
+.svg-legend-capture-item.dim {
+    opacity: 0.35;
+}
+
+.svg-legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.15);
+}

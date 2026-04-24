@@ -199,18 +199,85 @@ function executeMatch() {
     }
 }
 
+// ===== matched_node_captures ヘルパー =====
+// Perl の sample_toTanabe1.pl の calc_matched_node_captures に相当。
+// rootCapture から木を DFS し、nextNodeCaptures に含まれるノードに当たった枝は
+// 「次のマッチ範囲」としてスキップ、それ以外だけを今回のマッチノード一覧に加える。
+// nextNodeCaptures は TreeMatch() 第4引数に渡した配列（マッチ成功時は残り兄弟、
+// 失敗時は全直接子が入る）。
+function calcMatchedNodeCaptures(rootCapture, nextNodeCaptures) {
+    // ノード同一性（オブジェクト参照）で「次探索開始点」を判定する
+    const nextNodeSet = new Set(nextNodeCaptures.map(c => c.Node()));
+
+    const matchedNodes = [];
+    const iter = new TreeWrapperBaseIterator(rootCapture.Tree());
+
+    while (true) {
+        if (iter.IsEnd()) {
+            iter.MoveUp();
+            if (iter.IsRoot()) break;
+            iter.MoveNextSibling();
+            continue;
+        }
+        const curNode = iter.Node();
+        if (nextNodeSet.has(curNode)) {
+            // この節点は次マッチの起点 → ここで分岐を切る（子孫は含めない）
+            iter.MoveNextSibling();
+        } else {
+            matchedNodes.push(curNode);
+            iter.MoveDown();
+        }
+    }
+    return matchedNodes; // Node オブジェクトの配列
+}
+
+// Perl の TreeMatchFind_with_matched_node に相当。
+// TreeMatchFind と同じ探索をしつつ、各マッチ結果に _matchedNodes を付与して返す。
+function treeMatchFindWithMatchedNode(tree, pattern) {
+    const results = [];
+    let nextCaptureList = [];
+    let nextCaptureListAdd = [];
+    let baseRootCapture = null;
+
+    while (true) {
+        const result = TreeMatch(tree, pattern, baseRootCapture, nextCaptureListAdd);
+        if (result) {
+            result._matchedNodes = calcMatchedNodeCaptures(
+                result.GetRootCapture(), nextCaptureListAdd);
+            results.push(result);
+        }
+        // 次の探索候補を逆順で積む（Perl の実装と同じ順序）
+        for (let i = nextCaptureListAdd.length - 1; i >= 0; i--) {
+            nextCaptureList.push(nextCaptureListAdd[i]);
+        }
+        nextCaptureListAdd = [];
+        if (nextCaptureList.length === 0) break;
+        baseRootCapture = nextCaptureList.pop();
+        tree = baseRootCapture.Tree();
+    }
+    return results;
+}
+
 // TreeMatch を実行する
 // 結果が単一のマッチオブジェクトになるため、そのまま表示処理に渡している
-function executeTreeMatch(targetTree, pattern) {// TreeMatch を呼び出して結果を取得する。TreeMatch はターゲットツリーとパターンを受け取り、マッチした場合はマッチオブジェクトを返し、マッチしなかった場合は null を返す想定
+function executeTreeMatch(targetTree, pattern) {
     try {
-        const result = TreeMatch(targetTree, pattern);
+        // 第4引数に配列を渡して「次探索候補」を受け取る
+        const nextCaptureListAdd = [];
+        const result = TreeMatch(targetTree, pattern, null, nextCaptureListAdd);
 
         if (result) {
-            lastMatchResult = resultToJSON(result);// マッチ結果を JSON に変換して保存する。
-            displayMatchSuccess(result);// マッチ成功の表示をする。これにはキャプチャ内容の表示やツリー可視化も含まれる
+            // 今回のマッチに使われたノード一覧を計算して result に付与する
+            result._matchedNodes = calcMatchedNodeCaptures(
+                result.GetRootCapture(), nextCaptureListAdd);
+            console.log('[executeTreeMatch] _matchedNodes:',
+                result._matchedNodes.map(n => n.Attr0()));
+
+            lastMatchResult = resultToJSON(result);
+            displayMatchSuccess(result);
         } else {
-            lastMatchResult = null;// マッチしなかった場合は結果を null にしておく
-            displayMatchFail();// マッチ失敗の表示をする
+            lastMatchResult = null;
+            displayMatchFail();
         }
     } catch (error) {
         lastMatchResult = null;
@@ -222,14 +289,17 @@ function executeTreeMatch(targetTree, pattern) {// TreeMatch を呼び出して�
 // 結果が複数のマッチオブジェクトの配列になるため、全件表示と個別選択の UI を組み立てる必要がある
 function executeTreeMatchFind(targetTree, pattern) {
     try {
-        const results = TreeMatchFind(targetTree, pattern);
+        // treeMatchFindWithMatchedNode で各結果に _matchedNodes を付与する
+        const results = treeMatchFindWithMatchedNode(targetTree, pattern);
 
-        if (results.length > 0) {// マッチした結果が 1 件以上あれば、JSON に変換して保存し、成功表示をする
-            lastMatchResult = results.map(r => resultToJSON(r));// マッチ結果の配列を JSON に変換して保存する。
-            displayMatchFindSuccess(results);// 複数マッチ成功の表示をする。これには全件表示と個別選択の UI を組み立てる処理が含まれる
+        if (results.length > 0) {
+            console.log('[executeTreeMatchFind] results:', results.length,
+                results.map(r => r._matchedNodes.map(n => n.Attr0())));
+            lastMatchResult = results.map(r => resultToJSON(r));
+            displayMatchFindSuccess(results);
         } else {
             lastMatchResult = null;
-            displayMatchFail();// マッチ失敗の表示をする
+            displayMatchFail();
         }
     } catch (error) {
         lastMatchResult = null;
@@ -463,12 +533,18 @@ function formatNode(node) {// ノードオブジェクトを受け取り、そ�
 // マッチ失敗時の表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。マッチしなかった場合は、結果エリアに "Match: NO MATCH" と表示する
 function displayMatchFail() {
     resultArea.innerHTML = '<p class="match-fail">Match: NO MATCH</p>';
+    // 前回成功時の結果を残すと SVG に古い色が出続けるので必ずクリアする
+    window.lastMatchedResult  = null;
+    window.lastMatchedResults = null;
 }
 
 // エラー表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。ツリー構築やマッチ処理でエラーが出た場合は、結果エリアにエラーメッセージを表示する
 function displayError(error) {
     const errorMsg = error.message || error.toString();
     resultArea.innerHTML = `<div class="match-error"><strong>Error:</strong><br>${escapeHtml(errorMsg)}</div>`;
+    // エラー時も前回結果をクリアしておく
+    window.lastMatchedResult  = null;
+    window.lastMatchedResults = null;
 }
 
 // HTML エスケープ
@@ -1005,14 +1081,51 @@ function calculateNodeWidth(text, baseWidth = 120, minWidth = 80, maxWidth = 300
     return Math.min(Math.max(requiredWidth, minWidth, baseWidth), maxWidth);// 計算した幅を最小値、基本幅、最大値の範囲内に収める。これでノードのテキストが短い場合は基本幅が使われ、長い場合は必要な幅まで広がるが、極端に大きくなるのは防げるようになる
 }
 
-// SVG でツリーを描画する
-function drawSVGTree(tree) {// SVG でツリーを描画する関数。tree は描画するツリーオブジェクト。これでマッチ結果のツリー構造を視覚的に表示できるようになる
-    const svgGroup = document.getElementById('tree-group');// SVG 内のグループ要素を取得する。これでノードや線をこのグループに追加して、ツリー全体をまとめて管理できるようになる
-    const treeSvg = document.getElementById('tree-svg');// ツリー全体を表示する SVG 要素を取得する。これでツリーのサイズや表示状態をこの SVG 要素で管理できるようになる
-    const emptyState = document.querySelector('#tab-tree-viz .empty-state');// ツリーがないときに表示する空状態の要素を取得する。これでツリーがないときにユーザーにわかりやすく伝えることができるようになる
+// ===== SVG カラーリング用 中間データ構造 =====
+// drawSVGTree() のたびにリセットされる。色付け・ホバー処理がここを参照する
 
-    // 前回の描画内容を消してから描き直す
+// ノードオブジェクト → nodeId（"0", "0.1", "0.1.2" 形式のパス文字列）
+// 【前提】GetRootCapture().Node() / Capture(name).Node() が drawNode() 登録時と
+//        同一のオブジェクト参照を返すことを前提とする。参照が崩れた場合は
+//        キャプチャ色付けがスキップされるが、それ以外の処理は正常に動く
+let nodeObjectToNodeId = new Map();
+
+// nodeId → renderMeta（SVG 要素と match/capture 情報を持つ）
+// { nodeId, nodeObject, rectEl, textEl, nodeX, nodeY, nodeWidth, nodeHeight,
+//   matchIndexes: [], captureNames: [], isMatchRoot: false }
+let nodeIdToRenderMeta = new Map();
+
+// 現在アクティブなホバー種別（match と capture は同時に有効にしない）
+// 'match' | 'capture' | null
+let currentSVGHoverType = null;
+
+// ホバー解除のデバウンスタイマー
+// rect → badge など短い移動でチラつかないよう 60ms 待ってから消す
+let svgHoverClearTimer = null;
+
+// ノードごとのバッジ累積幅（右端から積む際に使う・可変幅対応）
+let nodeBadgeOffsets = new Map(); // nodeId → 右端からの現在オフセット
+
+// SVG でツリーを描画する
+// matchResults, matchMode, patternStr はオプション。省略すると色付けなしで描画する
+// - matchResults: TreeMatch なら単一結果、TreeMatchFind なら結果配列
+// - matchMode: 'TreeMatch' | 'TreeMatchFind'
+// - patternStr: パターン文字列（capture 名の出現順で色を割り当てるために使う）
+function drawSVGTree(tree, matchResults, matchMode, patternStr) {
+    const svgGroup = document.getElementById('tree-group');
+    const treeSvg = document.getElementById('tree-svg');
+    const emptyState = document.querySelector('#tab-tree-viz .empty-state');
+
+    // 前回の描画をリセット（中間データも一緒にリセット）
     svgGroup.innerHTML = '';
+    nodeObjectToNodeId = new Map();
+    nodeIdToRenderMeta = new Map();
+    nodeBadgeOffsets   = new Map();
+    currentSVGHoverType = null;
+
+    // 凡例エリアも空にする
+    const legendEl = document.getElementById('svg-match-legend');
+    if (legendEl) legendEl.innerHTML = '';
 
     if (!tree) {
         treeSvg.classList.remove('active');
@@ -1020,116 +1133,542 @@ function drawSVGTree(tree) {// SVG でツリーを描画する関数。tree は�
         return;
     }
 
-    emptyState.style.display = 'none';// ツリーがあるときは空状態を非表示にする。これでツリーが表示されるときに空状態が消えるようになる
-    treeSvg.classList.add('active');// SVG をアクティブ状態にする。これでツリーが表示されるときに SVG が見えるようになる
+    emptyState.style.display = 'none';
+    treeSvg.classList.add('active');
 
-    const padding = { top: 30, left: 20, right: 20, bottom: 20 };// ツリー全体の余白。これでノードが SVG の端にくっつかないように余白を確保できるようになる
-    const baseNodeWidth = 120; // 基本幅。文字列が長いノードは後で広げる
-    const nodeHeight = 40;// ノードの高さ。これでノードの縦サイズを一定にして、レイアウトを整えることができるようになる
-    const levelHeight = 80;// 階層ごとの縦の間隔。これでノード同士が重ならないように、階層ごとに十分なスペースを確保できるようになる
+    // バッジが上にはみ出るぶん padding.top を大きめにとる
+    const padding = { top: 40, left: 20, right: 20, bottom: 20 };
+    const baseNodeWidth = 120;
+    const nodeHeight = 40;
+    const levelHeight = 80;
 
-    let maxWidth = 0;// SVG 全体の幅を算出するための変数。ノードを描いていく中で、ノードの位置と幅から必要な全体幅を更新していく。これでツリー全体が収まるように SVG のサイズを動的に決めることができるようになる
-    let maxHeight = 0;// SVG 全体の高さを算出するための変数。ノードを描いていく中で、ノードの位置から必要な全体高さを更新していく。これでツリー全体が収まるように SVG のサイズを動的に決めることができるようになる
+    let maxWidth  = 0;
+    let maxHeight = 0;
 
-    function drawNode(node, x, y, level) {// ノードを描くための再帰関数。node は描画するノードオブジェクト、x と y はノードを配置する位置、level はノードの階層レベル。これでツリー構造を再帰的に描いていくことができるようになる
+    // ノードを再帰的に描く内部関数
+    // nodeId は "0"（ルート）, "0.0"（ルートの1番目の子）のように深さ優先パスで振る
+    function drawNode(node, x, y, level, nodeId) {
         if (!node) return { width: 0, center: x };
 
-        const nodeText = formatNode(node);// ノードのテキストをフォーマットする関数を呼び出して、ノードの表示用テキストを取得する。これでノードの内容をわかりやすく表示できるようになる
-        const nodeWidth = calculateNodeWidth(nodeText, baseNodeWidth); // ノードのテキストに応じて表示幅を計算する関数を呼び出して、ノードの幅を決定する。これでノードのテキストが長い場合に、表示幅を自動的に調整できるようになる
-        const children = [];
+        const nodeText  = formatNode(node);
+        const nodeWidth = calculateNodeWidth(nodeText, baseNodeWidth);
+        const children  = [];
 
-        for (let i = 0; i < node.NumChildren(); i++) {// 子ノードを配列に追加する。これでノードの子ノードをまとめて管理できるようになる
-            children.push(node.NthChildSubtree(i));// ノードの子ノードを配列に追加する。これでノードの子ノードをまとめて管理できるようになる
+        for (let i = 0; i < node.NumChildren(); i++) {
+            children.push(node.NthChildSubtree(i));
         }
 
-        // SVG 全体サイズ算出用に最大位置を更新する
-        maxWidth = Math.max(maxWidth, x + nodeWidth);// ノードの右端位置を全体の最大幅と比較して更新する。これでノードを描いていく中で、必要な全体幅を動的に決めることができるようになる
-        maxHeight = Math.max(maxHeight, y + nodeHeight);// ノードの下端位置を全体の最大高さと比較して更新する。これでノードを描いていく中で、必要な全体高さを動的に決めることができるようになる
+        maxWidth  = Math.max(maxWidth,  x + nodeWidth);
+        maxHeight = Math.max(maxHeight, y + nodeHeight);
 
-        if (children.length === 0) {//  子ノードがいない場合は葉ノードとして、その場で箱と文字を描く。これで葉ノードを描くための特別な処理をして、木構造の描画を自然にすることができるようになる
-            // 葉ノードならその場で箱と文字を描く
+        // ノード要素を生成してグループに追加するヘルパー（葉・親共通）
+        function makeNodeElements(nx, ny, nw) {
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', x);// ノードの左端位置を矩形の x 属性に設定する。これでノードの位置に矩形が描かれるようになる
-            rect.setAttribute('y', y);
-            rect.setAttribute('width', nodeWidth);
+            rect.setAttribute('x', nx);
+            rect.setAttribute('y', ny);
+            rect.setAttribute('width', nw);
             rect.setAttribute('height', nodeHeight);
+            rect.setAttribute('rx', 6);
             svgGroup.appendChild(rect);
 
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', x + nodeWidth / 2);// ノードの中央位置をテキストの x 属性に設定する。これでノードの中央にテキストが配置されるようになる
-            text.setAttribute('y', y + nodeHeight / 2 + 5);// ノードの中央位置をテキストの y 属性に設定する。これでノードの中央にテキストが配置されるようになる
-            text.setAttribute('text-anchor', 'middle');// テキストのアンカーを中央に設定する。これでテキストが指定した x 座標を基準に中央揃えで表示されるようになる
-            text.textContent = nodeText;// ノードのテキストをテキスト要素の内容に設定する。これでノードの内容がテキストとして表示されるようになる
-            svgGroup.appendChild(text);// 矩形とテキストを SVG グループに追加する。これでノードの矩形とテキストが SVG に描画されるようになる
+            text.setAttribute('x', nx + nw / 2);
+            text.setAttribute('y', ny + nodeHeight / 2 + 5);
+            text.setAttribute('text-anchor', 'middle');
+            // pointer-events: none にすることで、文字上にカーソルが乗っても
+            // 下の rect がマウスイベントを受け取れるようにする
+            text.setAttribute('pointer-events', 'none');
+            text.textContent = nodeText;
+            svgGroup.appendChild(text);
 
-            return { width: nodeWidth, center: x + nodeWidth / 2 };// 葉ノードの幅と中心位置を返す。これで親ノードが子ノードの位置を決めるために、子ノードの幅と中心位置を知ることができるようになる
+            return { rect, text };
         }
 
-        // 先に子ノードを描いてから親の中心位置を決める
-        // 親を先に置くと、子の数や幅によって後から位置がずれてしまうため、木構造では下から計算する方が自然
+        if (children.length === 0) {
+            // 葉ノード
+            const { rect, text } = makeNodeElements(x, y, nodeWidth);
+            nodeObjectToNodeId.set(node, nodeId);
+            nodeIdToRenderMeta.set(nodeId, {
+                nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                nodeX: x, nodeY: y, nodeWidth, nodeHeight,
+                matchIndexes: [], captureNames: [], isMatchRoot: false
+            });
+            return { width: nodeWidth, center: x + nodeWidth / 2 };
+        }
+
+        // 先に子を描いてから親の中心位置を決める
+        // 親を先に描くと子の幅によって位置がずれるため、木構造では下から計算するのが自然
         let childX = x;
         const childCenters = [];
         let totalWidth = 0;
 
-        children.forEach((child, idx) => {// 子ノードを順番に描いていく。child は子ノードオブジェクト、idx は子ノードのインデックス。これで子ノードを左から順に描いていくことができるようになる
-            const result = drawNode(child.GetRootNode(), childX, y + levelHeight, level + 1);// 子ノードを描くための再帰関数を呼び出して、子ノードを描く。引数には子ノードのオブジェクト、子ノードを配置する位置、子ノードの階層レベルを渡す。これで子ノードを再帰的に描いていくことができるようになる
-            childCenters.push(result.center);// 子ノードの中心位置を配列に追加する。これで親ノードが子ノードの位置を決めるために、子ノードの中心位置を知ることができるようになる
-            childX += result.width + 20;// 次の子ノードを配置する位置を更新する。子ノードの幅と、子ノード同士の間隔を足して、次の子ノードの x 座標を決める。これで子ノードが横に並ぶように配置されるようになる
-            totalWidth += result.width + (idx < children.length - 1 ? 20 : 0);// 子ノードの幅を合計する。子ノード同士の間隔も加えるが、最後の子ノードの後には間隔を加えない。これで親ノードの幅を決めるために、子ノードの幅の合計を知ることができるようになる
+        children.forEach((child, idx) => {
+            // 子の nodeId は「親のパス + "." + 子インデックス」
+            const childNodeId = nodeId + '.' + idx;
+            const result = drawNode(child.GetRootNode(), childX, y + levelHeight, level + 1, childNodeId);
+            childCenters.push(result.center);
+            childX += result.width + 20;
+            totalWidth += result.width + (idx < children.length - 1 ? 20 : 0);
         });
 
-        // 子の中央に来るよう親ノードを配置する
-        const parentCenter = (childCenters[0] + childCenters[childCenters.length - 1]) / 2;//   子ノードの最初と最後の中心位置の平均を親ノードの中心位置とする。これで親ノードが子ノードの中央に配置されるようになる
-        const parentX = parentCenter - nodeWidth / 2;// 親ノードの左端位置を、親ノードの中心位置からノードの幅の半分を引いて計算する。これで親ノードが子ノードの中央に配置されるようになる
+        const parentCenter = (childCenters[0] + childCenters[childCenters.length - 1]) / 2;
+        const parentX      = parentCenter - nodeWidth / 2;
+        maxWidth = Math.max(maxWidth, parentX + nodeWidth);
 
-        // 親ノード分も最大位置に反映する
-        maxWidth = Math.max(maxWidth, parentX + nodeWidth);// 親ノードの右端位置を全体の最大幅と比較して更新する。これで親ノードを描いていく中で、必要な全体幅を動的に決めることができるようになる
+        const { rect, text } = makeNodeElements(parentX, y, nodeWidth);
+        text.setAttribute('x', parentCenter); // 中央揃えのため x を上書き
 
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');// 親ノードの矩形を作る。これで親ノードの矩形が描かれるようになる
-        rect.setAttribute('x', parentX);// 親ノードの左端位置を矩形の x 属性に設定する。これで親ノードの位置に矩形が描かれるようになる
-        rect.setAttribute('y', y);
-        rect.setAttribute('width', nodeWidth);
-        rect.setAttribute('height', nodeHeight);
-        svgGroup.appendChild(rect);
+        nodeObjectToNodeId.set(node, nodeId);
+        nodeIdToRenderMeta.set(nodeId, {
+            nodeId, nodeObject: node, rectEl: rect, textEl: text,
+            nodeX: parentX, nodeY: y, nodeWidth, nodeHeight,
+            matchIndexes: [], captureNames: [], isMatchRoot: false
+        });
 
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', parentCenter);// 親ノードの中心位置をテキストの x 属性に設定する。これで親ノードの中央にテキストが配置されるようになる
-        text.setAttribute('y', y + nodeHeight / 2 + 5);// 親ノードの中央位置をテキストの y 属性に設定する。これで親ノードの中央にテキストが配置されるようになる
-        text.setAttribute('text-anchor', 'middle');// テキストのアンカーを中央に設定する。これでテキストが指定した x 座標を基準に中央揃えで表示されるようになる
-        text.textContent = nodeText;// 親ノードのテキストをテキスト要素の内容に設定する。これで親ノードの内容がテキストとして表示されるようになる
-        svgGroup.appendChild(text);
-
-        // 親子を結ぶ線を描く
+        // 親子を結ぶ線（背面に回るよう先頭へ挿入する）
         childCenters.forEach(childCenter => {
             const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', parentCenter);// 親ノードの中心位置を線の x1 属性に設定する。これで線の始点が親ノードの中央になるようになる
-            line.setAttribute('y1', y + nodeHeight);// 親ノードの下端位置を線の y1 属性に設定する。これで線の始点が親ノードの下端になるようになる
-            line.setAttribute('x2', childCenter);   // 子ノードの中心位置を線の x2 属性に設定する。これで線の終点が子ノードの中央になるようになる
-            line.setAttribute('y2', y + levelHeight);   // 子ノードの上端位置を線の y2 属性に設定する。これで線の終点が子ノードの上端になるようになる
-            svgGroup.insertBefore(line, svgGroup.firstChild); // 線がノードの背面に回るよう先頭へ挿入する
+            line.setAttribute('x1', parentCenter);
+            line.setAttribute('y1', y + nodeHeight);
+            line.setAttribute('x2', childCenter);
+            line.setAttribute('y2', y + levelHeight);
+            svgGroup.insertBefore(line, svgGroup.firstChild);
         });
 
-        return { width: Math.max(totalWidth, nodeWidth), center: parentCenter };// このノードの幅は、子ノードの幅の合計と、ノード自身の幅のどちらか大きい方とする。これで親ノードが子ノードを包むように配置されるようになる
+        return { width: Math.max(totalWidth, nodeWidth), center: parentCenter };
     }
 
     try {
-        const rootNode = tree.GetRootNode();// ツリーのルートノードを取得する。これでツリーの最上位のノードから描き始めることができるようになる
-        drawNode(rootNode, padding.left, padding.top, 0);// ルートノードを描くための再帰関数を呼び出して、ツリー全体を描く。引数にはルートノードのオブジェクト、ノードを配置する位置、ノードの階層レベルを渡す。これでツリー構造を再帰的に描いていくことができるようになる
+        const rootNode = tree.GetRootNode();
+        drawNode(rootNode, padding.left, padding.top, 0, '0'); // ルートの nodeId は "0"
 
-        // 内容全体が収まるよう SVG サイズを決める
-        const svgWidth = maxWidth + padding.right;// SVG の幅を、最大のノード幅とパディングの右側を足して決める。これでツリー全体が SVG 内に収まるようになる
-        const svgHeight = maxHeight + padding.bottom;// SVG の高さを、最大のノード高さとパディングの下側を足して決める。これでツリー全体が SVG 内に収まるようになる
+        const svgWidth  = maxWidth  + padding.right;
+        const svgHeight = maxHeight + padding.bottom;
 
-        // ズーム計算用に元サイズを保存する
-        originalSvgWidth = svgWidth;// ズーム計算用に元サイズを保存する。これでズームイン・アウトのときに、元のサイズを基準にして拡大率を計算できるようになる
+        originalSvgWidth  = svgWidth;
         originalSvgHeight = svgHeight;
 
-        treeSvg.setAttribute('width', svgWidth);
+        treeSvg.setAttribute('width',  svgWidth);
         treeSvg.setAttribute('height', svgHeight);
-        // viewBox を外して拡大縮小時の見え方を安定させる
         treeSvg.removeAttribute('viewBox');
+
+        // マッチ結果があれば色付けを実行する
+        if (matchResults) {
+            const colorResult = applyMatchColors(matchResults, matchMode, patternStr || '');
+            if (colorResult) {
+                buildSVGLegend(colorResult.matchMeta, colorResult.captureMeta);
+            }
+        }
     } catch (error) {
         console.error('Error drawing tree:', error);
+    }
+}
+
+// ===== SVG カラーリング処理 =====
+
+// match 色パレット（4色で循環する）
+const MATCH_PALETTE = ['match-1', 'match-2', 'match-3', 'match-4'];
+
+// match 色に対応する実カラー値（凡例の丸に使う）
+const MATCH_STROKE_COLORS = { 1: '#2f9e44', 2: '#e67700', 3: '#9c36b5', 4: '#1971c2' };
+
+// capture バッジ色パレット（実行時の出現順に割り当てる）
+const CAPTURE_COLOR_PALETTE = [
+    '#d9485f', '#2b8a3e', '#1971c2', '#e67700', '#8e44ad',
+    '#c2255c', '#0b7285', '#5f3dc4', '#f08c00', '#2f9e44',
+    '#1c7ed6', '#a61e4d', '#495057', '#7b2cbf', '#087f5b'
+];
+
+// パターン文字列から ##name / ##@name の出現順で capture 名を抽出する
+// GetCaptureNames() は内部でソートされて返るため、ここで順序を先に確定させる
+function extractCaptureNamesInOrder(patternStr) {
+    const names = [];
+    const seen  = new Set();
+    const re    = /##(@?[A-Za-z_][A-Za-z0-9_]*)/g;
+    let m;
+    while ((m = re.exec(patternStr)) !== null) {
+        const name = m[1];
+        if (!seen.has(name)) { seen.add(name); names.push(name); }
+    }
+    return names;
+}
+
+// マッチ結果を中間データに反映し、SVG に色クラスとバッジを付与する
+// 返り値: { matchMeta, captureMeta }（凡例構築に使う）
+function applyMatchColors(matchResults, matchMode, patternStr) {
+    const matchMeta   = new Map(); // matchIndex → { matchClass, nodeIds: [] }
+    const captureMeta = new Map(); // captureName → { color, nodeIds: [] }  ※実際に取れた名前のみ入る
+    let captureColorIndex = 0;
+
+    // パターン出現順で capture 名の色インデックスを先に確定しておく。
+    // captureMeta 自体にはまだ入れない。実際に capture が取れたとき registerCapture() で追加する。
+    // これにより「出現順の色」と「実際に取れた名前だけ凡例に出る」を両立する。
+    const captureColorOrder = new Map(); // captureName → color（パターン出現順に割り当て済み）
+    extractCaptureNamesInOrder(patternStr).forEach(name => {
+        if (!captureColorOrder.has(name)) {
+            captureColorOrder.set(name, CAPTURE_COLOR_PALETTE[captureColorIndex++ % CAPTURE_COLOR_PALETTE.length]);
+        }
+    });
+
+    // nodeId を指定して match クラスを付与するヘルパー
+    function applyMatchToId(nodeId, matchIndex, matchClass) {
+        const meta = nodeIdToRenderMeta.get(nodeId);
+        if (!meta) return;
+        if (!meta.matchIndexes.includes(matchIndex)) {
+            meta.matchIndexes.push(matchIndex);
+            meta.rectEl.classList.add(matchClass);
+        }
+        const mMeta = matchMeta.get(matchIndex);
+        if (mMeta && !mMeta.nodeIds.includes(nodeId)) mMeta.nodeIds.push(nodeId);
+    }
+
+    // capture 名をノードに紐付けるヘルパー（バッジ表示・capture hover に使う）
+    // captureMeta は「実際に取れた capture 名だけ」ここで追加される
+    function registerCapture(nodeId, captureName) {
+        const meta = nodeIdToRenderMeta.get(nodeId);
+        if (!meta) return;
+        if (!meta.captureNames.includes(captureName)) meta.captureNames.push(captureName);
+        if (!captureMeta.has(captureName)) {
+            // 色はパターン出現順の事前割り当てを優先、予期せぬ名前には新規割り当て
+            const color = captureColorOrder.get(captureName)
+                ?? CAPTURE_COLOR_PALETTE[captureColorIndex++ % CAPTURE_COLOR_PALETTE.length];
+            captureMeta.set(captureName, { color, nodeIds: [] });
+        }
+        const cMeta = captureMeta.get(captureName);
+        if (!cMeta.nodeIds.includes(nodeId)) cMeta.nodeIds.push(nodeId);
+    }
+
+    // TreeMatch は単一結果なので配列に統一して扱う
+    const results = matchMode === 'TreeMatch'
+        ? [matchResults]
+        : (Array.isArray(matchResults) ? matchResults : []);
+
+    results.forEach((result, matchIndex) => {
+        if (!result) return;
+        const matchClass = MATCH_PALETTE[matchIndex % MATCH_PALETTE.length];
+        matchMeta.set(matchIndex, { matchClass, nodeIds: [] });
+
+        // ① ルートノードの nodeId を取得する
+        // 【前提】GetRootCapture().Node() が描画時に登録したのと同一オブジェクト参照を返すこと
+        let rootNodeId = null;
+        try {
+            const rootCapture = result.GetRootCapture && result.GetRootCapture();
+            if (rootCapture) {
+                const rId = nodeObjectToNodeId.get(rootCapture.Node());
+                if (rId !== undefined) {
+                    rootNodeId = rId;
+                    const rootMeta = nodeIdToRenderMeta.get(rootNodeId);
+                    if (rootMeta && !rootMeta.isMatchRoot) {
+                        rootMeta.isMatchRoot = true;
+                        rootMeta.rectEl.classList.add('match-root');
+                    }
+                }
+            }
+        } catch (e) { /* GetRootCapture 未対応の場合はスキップ */ }
+
+        // ② 各 capture のノード nodeId を収集し、capture 名を登録する
+        const capturedNodeIds = [];
+
+        try {
+            (result.GetCaptureNames ? result.GetCaptureNames() : []).forEach(name => {
+                try {
+                    const cap = result.Capture(name);
+                    if (!cap) return;
+                    const nId = nodeObjectToNodeId.get(cap.Node());
+                    if (nId !== undefined) { capturedNodeIds.push(nId); registerCapture(nId, name); }
+                } catch (e) {}
+            });
+        } catch (e) {}
+
+        try {
+            (result.GetMultiCaptureNames ? result.GetMultiCaptureNames() : []).forEach(name => {
+                try {
+                    const caps = result.MultiCapture(name);
+                    if (!caps) return;
+                    caps.forEach(cap => {
+                        try {
+                            const nId = nodeObjectToNodeId.get(cap.Node());
+                            if (nId !== undefined) { capturedNodeIds.push(nId); registerCapture(nId, name); }
+                        } catch (e) {}
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {}
+
+        // ③ 今回のマッチに使われたノードだけを塗る
+        // result._matchedNodes は calcMatchedNodeCaptures() で計算した
+        // 「今回のマッチに含まれるノードのみ」のリスト。
+        // _matchedNodes がない古い結果はフォールバックとして root だけ塗る。
+        if (result._matchedNodes && result._matchedNodes.length > 0) {
+            result._matchedNodes.forEach(node => {
+                const nId = nodeObjectToNodeId.get(node);
+                if (nId !== undefined) {
+                    applyMatchToId(nId, matchIndex, matchClass);
+                }
+            });
+        } else if (rootNodeId !== null) {
+            // フォールバック: _matchedNodes がない場合は root とキャプチャノードだけ
+            applyMatchToId(rootNodeId, matchIndex, matchClass);
+            capturedNodeIds.forEach(id => applyMatchToId(id, matchIndex, matchClass));
+        } else {
+            capturedNodeIds.forEach(id => applyMatchToId(id, matchIndex, matchClass));
+        }
+    });
+
+    // ④ 各ノードに capture バッジを付ける
+    nodeIdToRenderMeta.forEach(meta => {
+        if (meta.captureNames.length === 0) return;
+        [...new Set(meta.captureNames)].forEach(name => {
+            const cMeta = captureMeta.get(name);
+            if (cMeta) addSVGBadge(meta, name, cMeta.color);
+        });
+    });
+
+    // ⑤ ホバーイベントを設定する
+    setupMatchHoverEvents(matchMeta);
+    setupCaptureHoverEvents(captureMeta);
+
+    return { matchMeta, captureMeta };
+}
+
+// SVG ノードの右上に capture 名バッジを追加する（SVG g 要素で構成）
+// 複数バッジは右端から左方向へ累積幅分ずらして並べる（可変幅対応）
+function addSVGBadge(meta, captureName, color) {
+    const svgGroup   = document.getElementById('tree-group');
+    const badgeH     = 15;
+    const fontSize   = 9;
+    const charW      = 5.5;
+    const padX       = 5;
+    const gap        = 3;
+    const badgeW     = Math.max(Math.ceil(captureName.length * charW) + padX * 2, 22);
+
+    // 前のバッジの累積幅から右端オフセットを計算する（可変幅に対応）
+    const offset = nodeBadgeOffsets.get(meta.nodeId) || 0;
+    nodeBadgeOffsets.set(meta.nodeId, offset + badgeW + gap);
+
+    const bx = meta.nodeX + meta.nodeWidth - badgeW - offset;
+    const by = meta.nodeY - badgeH + 4; // ノード上端から少しかかる位置に配置
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'cap-badge-group');
+    g.setAttribute('data-capture', captureName);
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', bx);
+    rect.setAttribute('y', by);
+    rect.setAttribute('width',  badgeW);
+    rect.setAttribute('height', badgeH);
+    rect.setAttribute('rx', 7);
+    // presentation attribute は CSS に負けるので inline style で上書きする
+    rect.style.fill        = color;
+    rect.style.stroke      = 'rgba(255,255,255,0.8)';
+    rect.style.strokeWidth = '1';
+    g.appendChild(rect);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x',              bx + badgeW / 2);
+    text.setAttribute('y',              by + badgeH / 2 + 3);
+    text.setAttribute('text-anchor',   'middle');
+    text.setAttribute('fill',          'white');
+    text.setAttribute('font-size',     fontSize);
+    text.setAttribute('font-weight',   '700');
+    text.setAttribute('font-family',   "'SF Mono', Consolas, monospace");
+    text.setAttribute('pointer-events', 'none');
+    text.textContent = captureName;
+    g.appendChild(text);
+
+    svgGroup.appendChild(g);
+}
+
+// ===== SVG ホバー処理 =====
+
+// 全ノード・バッジ・凡例のホバー状態をリセットする
+// 競合回避のため applyMatchHover / applyCaptureHover は必ずこれを先に呼ぶ
+function clearSVGHoverState() {
+    currentSVGHoverType = null;
+    nodeIdToRenderMeta.forEach(meta => {
+        meta.rectEl.classList.remove('is-active', 'is-dimmed', 'capture-active');
+        meta.textEl.classList.remove('is-dimmed');
+    });
+    document.querySelectorAll('#tree-group .cap-badge-group rect').forEach(r => {
+        r.classList.remove('is-active', 'is-dimmed');
+    });
+    document.querySelectorAll(
+        '#svg-match-legend .svg-legend-capture-item, #svg-match-legend .svg-legend-match-item'
+    ).forEach(el => el.classList.remove('active', 'dim'));
+}
+
+// 60ms デバウンスでホバー解除をスケジュールする
+// rect → badge の短い移動でチラつかないようにする
+function scheduleSVGHoverClear() {
+    svgHoverClearTimer = setTimeout(clearSVGHoverState, 60);
+}
+function cancelSVGHoverClear() {
+    if (svgHoverClearTimer !== null) { clearTimeout(svgHoverClearTimer); svgHoverClearTimer = null; }
+}
+
+// match ホバー：ノード本体にホバーしたとき、同じ match 群を強調する
+// clear → set のシーケンスで「最後に入った hover を優先」を実現する
+function applyMatchHover(meta, matchMeta) {
+    clearSVGHoverState(); // 前の hover 状態（match/capture どちらでも）を完全に消す
+    currentSVGHoverType = 'match';
+
+    const activeIds = new Set();
+    meta.matchIndexes.forEach(idx => {
+        const mMeta = matchMeta.get(idx);
+        if (mMeta) mMeta.nodeIds.forEach(id => activeIds.add(id));
+    });
+
+    nodeIdToRenderMeta.forEach((m, id) => {
+        if (activeIds.has(id)) {
+            m.rectEl.classList.add('is-active');
+        } else {
+            m.rectEl.classList.add('is-dimmed');
+            m.textEl.classList.add('is-dimmed');
+        }
+    });
+
+    // 凡例の match 項目も強調する
+    const activeMatchNos = new Set(meta.matchIndexes.map(i => i + 1));
+    document.querySelectorAll('#svg-match-legend .svg-legend-match-item').forEach(el => {
+        const n = parseInt(el.dataset.match, 10);
+        el.classList.toggle('active', activeMatchNos.has(n));
+        el.classList.toggle('dim',   !activeMatchNos.has(n));
+    });
+}
+
+function setupMatchHoverEvents(matchMeta) {
+    nodeIdToRenderMeta.forEach(meta => {
+        if (meta.matchIndexes.length === 0) return;
+        meta.rectEl.addEventListener('mouseenter', () => {
+            cancelSVGHoverClear();
+            applyMatchHover(meta, matchMeta);
+        });
+        meta.rectEl.addEventListener('mouseleave', scheduleSVGHoverClear);
+    });
+}
+
+// capture ホバー：バッジまたは凡例にホバーしたとき、同名 capture を持つノードを強調する
+// clear → set で「最後に入った hover を優先」を実現する
+function applyCaptureHover(captureName, captureMeta) {
+    clearSVGHoverState(); // 前の hover 状態を完全に消してから capture hover を適用する
+    currentSVGHoverType = 'capture';
+
+    const cMeta = captureMeta.get(captureName);
+    if (!cMeta) return;
+    const activeIds = new Set(cMeta.nodeIds);
+
+    nodeIdToRenderMeta.forEach((meta, id) => {
+        if (activeIds.has(id)) {
+            meta.rectEl.classList.add('capture-active');
+        } else {
+            meta.rectEl.classList.add('is-dimmed');
+            meta.textEl.classList.add('is-dimmed');
+        }
+    });
+
+    document.querySelectorAll('#tree-group .cap-badge-group').forEach(g => {
+        const r = g.querySelector('rect');
+        if (!r) return;
+        if (g.getAttribute('data-capture') === captureName) r.classList.add('is-active');
+        else r.classList.add('is-dimmed');
+    });
+
+    document.querySelectorAll('#svg-match-legend .svg-legend-capture-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.capture === captureName);
+        el.classList.toggle('dim',   el.dataset.capture !== captureName);
+    });
+}
+
+function setupCaptureHoverEvents(captureMeta) {
+    document.querySelectorAll('#tree-group .cap-badge-group').forEach(g => {
+        const name = g.getAttribute('data-capture');
+        g.addEventListener('mouseenter', () => {
+            cancelSVGHoverClear();
+            applyCaptureHover(name, captureMeta);
+        });
+        g.addEventListener('mouseleave', scheduleSVGHoverClear);
+    });
+}
+
+// ===== SVG 凡例 =====
+
+// SVG の上に「match 色一覧」「Capture 色順一覧」を動的に表示する
+// 各項目にホバーすると対応する match/capture のノードが強調される
+function buildSVGLegend(matchMeta, captureMeta) {
+    let legendEl = document.getElementById('svg-match-legend');
+    if (!legendEl) {
+        legendEl = document.createElement('div');
+        legendEl.id = 'svg-match-legend';
+        const treeVizArea = document.querySelector('.tree-viz-area');
+        treeVizArea.insertBefore(legendEl, document.getElementById('tree-svg'));
+    }
+    legendEl.innerHTML = '';
+
+    // match 色一覧
+    if (matchMeta.size > 0) {
+        const box = document.createElement('div');
+        box.className = 'svg-legend-box';
+        box.innerHTML = '<div class="svg-legend-title">match 色一覧</div>';
+        const list = document.createElement('div');
+        list.className = 'svg-legend-list';
+
+        matchMeta.forEach(({ nodeIds }, matchIndex) => {
+            const pNo  = (matchIndex % 4) + 1;
+            const chip = document.createElement('span');
+            chip.className    = 'svg-legend-match-item';
+            chip.dataset.match = String(matchIndex + 1);
+            chip.innerHTML =
+                `<span class="svg-legend-swatch" style="background:${MATCH_STROKE_COLORS[pNo]};"></span>` +
+                `match #${matchIndex + 1}`;
+
+            chip.addEventListener('mouseenter', () => {
+                cancelSVGHoverClear();
+                clearSVGHoverState();
+                currentSVGHoverType = 'match';
+                const activeIds = new Set(nodeIds);
+                nodeIdToRenderMeta.forEach((m, id) => {
+                    if (activeIds.has(id)) m.rectEl.classList.add('is-active');
+                    else { m.rectEl.classList.add('is-dimmed'); m.textEl.classList.add('is-dimmed'); }
+                });
+                chip.classList.add('active');
+                list.querySelectorAll('.svg-legend-match-item').forEach(el => {
+                    if (el !== chip) el.classList.add('dim');
+                });
+            });
+            chip.addEventListener('mouseleave', scheduleSVGHoverClear);
+            list.appendChild(chip);
+        });
+
+        box.appendChild(list);
+        legendEl.appendChild(box);
+    }
+
+    // Capture 色順一覧
+    if (captureMeta.size > 0) {
+        const box = document.createElement('div');
+        box.className = 'svg-legend-box';
+        box.innerHTML = '<div class="svg-legend-title">Capture 色順一覧</div>';
+        const list = document.createElement('div');
+        list.className = 'svg-legend-list';
+
+        captureMeta.forEach(({ color }, captureName) => {
+            const chip = document.createElement('span');
+            chip.className       = 'svg-legend-capture-item';
+            chip.dataset.capture = captureName;
+            chip.innerHTML =
+                `<span class="svg-legend-swatch" style="background:${color};"></span>` +
+                captureName;
+            chip.addEventListener('mouseenter', () => {
+                cancelSVGHoverClear();
+                applyCaptureHover(captureName, captureMeta);
+            });
+            chip.addEventListener('mouseleave', scheduleSVGHoverClear);
+            list.appendChild(chip);
+        });
+
+        box.appendChild(list);
+        legendEl.appendChild(box);
     }
 }
 
@@ -1214,31 +1753,45 @@ function debugZoomReset() {
 
 // executeMatch を拡張し、ツリー描画とデバッグ準備も同時に行う
 // 「マッチ結果」「可視化」「デバッグ」が別々に更新されると画面の整合が崩れやすいので、ここでまとめて同期
-const originalExecuteMatch = executeMatch;// 元の executeMatch を保存しておく。これで元のマッチ実行のロジックを保持しつつ、拡張版で追加の処理を行うことができるようになる
+const originalExecuteMatch = executeMatch;// 元の executeMatch を保存しておく
 function executeMatchWithTree() {
     console.log('🎯 executeMatchWithTree called');
 
-    // デバッグ表示でも使うので現在の入力値を保持する
-    const pattern = patternInput.value.trim();
+    const pattern   = patternInput.value.trim();
     const targetStr = targetInput.value.trim();
 
-    console.log('  Pattern:', pattern);// 入力されたパターンとターゲットをログに出す。これでマッチ実行の前に、どのパターンとターゲットが使われているかがわかるようになる
+    console.log('  Pattern:', pattern);
     console.log('  Target:', targetStr);
+
+    // 【重要】マッチと SVG 描画が同一ツリーオブジェクトを参照するよう、
+    // currentTargetTree が未設定のときはここで一度だけ構築して格納する。
+    // こうすることで originalExecuteMatch() 内の TreeMatch/TreeMatchFind と
+    // drawSVGTree() 内の nodeObjectToNodeId が同じノード参照を持つことが保証される。
+    // （別々に TreeConstruct() すると異なるオブジェクトになり、
+    //   Capture(name).Node() の参照が nodeObjectToNodeId に見つからなくなる）
+    if (targetStr && !currentTargetTree) {
+        try {
+            currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
+            console.log('🌳 Pre-built currentTargetTree for reference consistency');
+        } catch (_) {
+            // 構築失敗は originalExecuteMatch() のエラーハンドリングに委ねる
+        }
+    }
 
     originalExecuteMatch();
 
     // 結果表示に加えて SVG ツリー描画とデバッグ準備も行う
-    if (targetStr) {// ターゲット文字列があるときだけツリー描画を試みる。これでターゲットが空のときにはツリー描画をスキップして、無駄な処理をしないようになる
+    if (targetStr) {
         try {
-            // 事前読み込みツリーがあればそれを使い、なければ入力文字列から構築する
-            let targetTree;
-            if (currentTargetTree) {// 事前にツリーが構築されている場合はそれを使う。これですでにツリーがあるときには、再度構築せずに同じツリーを使い回すことができるようになる
-                console.log('🎯 Using currentTargetTree for tree visualization');
-                targetTree = currentTargetTree;
-            } else {
-                targetTree = TreeConstruct(Tree1, targetStr).Tree();
-            }
-            drawSVGTree(targetTree);
+            // currentTargetTree は上で確保済み（またはインポート済み）
+            const targetTree = currentTargetTree;
+            if (!targetTree) throw new Error('ツリーを構築できませんでした');
+
+            const svgMode        = getMatchMode();
+            const svgMatchResults = svgMode === 'TreeMatch'
+                ? (window.lastMatchedResult  || null)
+                : (window.lastMatchedResults || null);
+            drawSVGTree(targetTree, svgMatchResults, svgMode, pattern);
 
             // 新しいツリーを描いたらズームを初期値へ戻す
             currentZoom = 1.0;
@@ -1248,33 +1801,29 @@ function executeMatchWithTree() {
             document.getElementById('zoom-controls').style.display = 'flex';
 
             // デバッグ再生に必要な情報を準備する
+            // ここで TreeMatch/Find を再実行するが、targetTree は同一オブジェクトなので
+            // window.lastMatchedResult と同じノード参照を持つ
             if (pattern) {
                 const mode = getMatchMode();
                 let result = null;
-
                 try {
                     if (mode === 'TreeMatch') {
                         result = TreeMatch(targetTree, pattern);
                     } else {
-                        // TreeMatchFind では結果配列全体を渡し、複数マッチを順に再生できるようにする
                         const results = TreeMatchFind(targetTree, pattern);
                         result = results.length > 0 ? results : null;
                     }
-                } catch (error) {
-                    result = null;
-                }
+                } catch (_) { result = null; }
 
                 console.log('  About to call setupDebugMode with:', { result, pattern });
-                setupDebugMode(result, pattern, targetTree);// デバッグ再生の準備をする関数を呼び出す。これでマッチ結果とパターン、ツリーをもとに、デバッグ再生のステップを生成して準備することができるようになる
+                setupDebugMode(result, pattern, targetTree);
             }
         } catch (error) {
             drawSVGTree(null);
-            // エラー時はズーム操作を隠す
             document.getElementById('zoom-controls').style.display = 'none';
         }
     } else {
         drawSVGTree(null);
-        // ツリー未入力ならズーム操作は不要なので隠す
         document.getElementById('zoom-controls').style.display = 'none';
     }
 }
