@@ -893,8 +893,8 @@ textarea::placeholder {
 /* おぐ風コンパクトレイアウトのエルボーコネクタ */
 #tree-svg path.tree-connector {
     fill: none;
-    stroke: var(--border-color);
-    stroke-width: 1.5;
+    stroke: #64748b;
+    stroke-width: 2;
 }
 
 #tree-svg circle {
