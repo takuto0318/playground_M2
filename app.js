@@ -41,6 +41,9 @@ const MAX_ZOOM = 3.0;
 let originalSvgWidth = 800;// SVG の元の幅（ズームリセット時に戻すため）
 let originalSvgHeight = 500;// SVG の元の高さ（ズームリセット時に戻すため）
 
+// レイアウト切替フラグ（false = 標準, true = おぐ風コンパクト）
+let useCompactLayout = false;
+
 // デバッグツリー側のズーム状態
 let debugZoom = 1.0;
 let debugOriginalSvgWidth = 800;// デバッグツリーは通常のツリーと同じサイズで作るが、ズームリセットの基準を分けておくと、デバッグ用に大きくしておいてもリセットが効くようになる
@@ -96,6 +99,9 @@ function init() {
     document.getElementById('debug-zoom-in-btn').addEventListener('click', debugZoomIn);
     document.getElementById('debug-zoom-out-btn').addEventListener('click', debugZoomOut);
     document.getElementById('debug-zoom-reset-btn').addEventListener('click', debugZoomReset);
+
+    // レイアウト切替ボタン
+    document.getElementById('layout-toggle-btn').addEventListener('click', toggleLayoutStyle);
 
     // 外側をクリックしたらドロップダウンを閉じる
     // 開きっぱなしになると操作しづらいため
@@ -233,7 +239,7 @@ function calcMatchedNodeCaptures(rootCapture, nextNodeCaptures) {
 
 // Perl の TreeMatchFind_with_matched_node に相当。
 // TreeMatchFind と同じ探索をしつつ、各マッチ結果に _matchedNodes を付与して返す。
-function treeMatchFindWithMatchedNode(tree, pattern) {
+function treeMatchFindWithMatchedNode(tree, pattern) {// TreeMatchFind と同じ探索をしつつ、各マッチ結果に _matchedNodes を付与して返す関数。
     const results = [];
     let nextCaptureList = [];
     let nextCaptureListAdd = [];
@@ -295,7 +301,7 @@ function executeTreeMatchFind(targetTree, pattern) {
         if (results.length > 0) {
             console.log('[executeTreeMatchFind] results:', results.length,
                 results.map(r => r._matchedNodes.map(n => n.Attr0())));
-            lastMatchResult = results.map(r => resultToJSON(r));
+            lastMatchResult = results.map(r => resultToJSON(r));// 結果を JSON 化して保存する。これも「結果をコピー」ボタンで出力できるようにするため
             displayMatchFindSuccess(results);
         } else {
             lastMatchResult = null;
@@ -534,8 +540,8 @@ function formatNode(node) {// ノードオブジェクトを受け取り、そ�
 function displayMatchFail() {
     resultArea.innerHTML = '<p class="match-fail">Match: NO MATCH</p>';
     // 前回成功時の結果を残すと SVG に古い色が出続けるので必ずクリアする
-    window.lastMatchedResult  = null;
-    window.lastMatchedResults = null;
+    window.lastMatchedResult  = null;// 単一マッチの結果をクリアする
+    window.lastMatchedResults = null;// 複数マッチの結果をクリアする
 }
 
 // エラー表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。ツリー構築やマッチ処理でエラーが出た場合は、結果エリアにエラーメッセージを表示する
@@ -1264,6 +1270,265 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
     }
 }
 
+// ===== おぐ風コンパクトレイアウト =====
+//
+// 参考: おぐ作成Javascript/ext_svg_tree_gen_js.js の draw_tree_prep / connect_line_v
+//
+// draw_tree_prep の思想:
+//   各サブツリーの「深さごとの x 範囲プロファイル」を bottom-up に計算し、
+//   兄弟サブツリーを詰め込む際に「すべての深さで重ならない最小シフト」を
+//   一度で求めることでコンパクトな配置を実現する（Reingold-Tilford 系）。
+//
+// connect_line_v の思想:
+//   親下端中央→子上端中央を直線ではなく水平中間点でのエルボーカーブで結ぶ。
+//   Q コマンドによる二次ベジェ曲線で角を丸め、折れ曲がりを滑らかに見せる。
+
+// node._cX, node._cW を設定する bottom-up レイアウト計算
+// 返り値: profile = [{lo, hi}, ...] (深さ 0 = 自ノード, 1 = 子レベル, ...)
+function computeCompactLayout(node, hSep, widthFn) {
+    const w = widthFn(node);
+    node._cW = w;
+
+    const numChildren = node.NumChildren();
+    if (numChildren === 0) {
+        node._cX = 0;
+        return [{ lo: 0, hi: w }];
+    }
+
+    // 子を再帰的にレイアウト（それぞれ x=0 起点）
+    const children = [];
+    const childProfiles = [];
+    for (let i = 0; i < numChildren; i++) {
+        const child = node.NthChildSubtree(i).GetRootNode();
+        children.push(child);
+        childProfiles.push(computeCompactLayout(child, hSep, widthFn));
+    }
+
+    // 兄弟を左→右に詰め込む。
+    // mergedProfile: これまでに配置した兄弟群の「右端プロファイル」
+    let mergedProfile = childProfiles[0].map(e => ({ lo: e.lo, hi: e.hi }));
+
+    for (let i = 1; i < numChildren; i++) {
+        const next = childProfiles[i];
+
+        // 全深さで重ならない最小シフト量を求める
+        let maxShift = mergedProfile[0].hi - next[0].lo + hSep;
+        const depth = Math.min(mergedProfile.length, next.length);
+        for (let d = 1; d < depth; d++) {
+            const s = mergedProfile[d].hi - next[d].lo + hSep;
+            if (s > maxShift) maxShift = s;
+        }
+        if (maxShift < hSep) maxShift = hSep;
+
+        // 子ノードをシフト（再帰）
+        applyXOffsetRecursive(children[i], maxShift);
+        for (const e of next) { e.lo += maxShift; e.hi += maxShift; }
+
+        // プロファイルをマージ
+        for (let d = 0; d < next.length; d++) {
+            if (d < mergedProfile.length) {
+                if (next[d].lo < mergedProfile[d].lo) mergedProfile[d].lo = next[d].lo;
+                if (next[d].hi > mergedProfile[d].hi) mergedProfile[d].hi = next[d].hi;
+            } else {
+                mergedProfile.push({ lo: next[d].lo, hi: next[d].hi });
+            }
+        }
+    }
+
+    // 親を子群の重心に揃える（子群スパンの中心に親中心を合わせる）
+    const childCenter = (mergedProfile[0].lo + mergedProfile[0].hi) / 2;
+    node._cX = childCenter - w / 2;
+
+    // 親レベルを先頭に加えたプロファイルを構築
+    const full = [{ lo: node._cX, hi: node._cX + w }, ...mergedProfile];
+
+    // 負座標があれば全体を右シフトして正規化
+    const minLo = full.reduce((m, e) => (e.lo < m ? e.lo : m), 0);
+    if (minLo < 0) {
+        const adj = -minLo;
+        for (const e of full) { e.lo += adj; e.hi += adj; }
+        applyXOffsetRecursive(node, adj);
+    }
+
+    return full;
+}
+
+// node._cX とすべての子孫 _cX に dx を加算する
+function applyXOffsetRecursive(node, dx) {
+    node._cX = (node._cX || 0) + dx;
+    for (let i = 0; i < node.NumChildren(); i++) {
+        applyXOffsetRecursive(node.NthChildSubtree(i).GetRootNode(), dx);
+    }
+}
+
+// おぐ風エルボーカーブで親子を繋ぐ SVG path を生成する（connect_line_v 相当）
+// x1,y1 = 親下端中央 / x2,y2 = 子上端中央
+function createConnectorPath(x1, y1, x2, y2) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'tree-connector');
+
+    const midY = Math.round((y1 + y2) / 2);
+    const dx = x2 - x1;
+    const r  = 4; // 丸め半径の上限
+    const hR = Math.min(r, Math.abs(dx) / 2);
+    const vR = Math.min(r, Math.abs(y2 - y1) / 2);
+    const sx = dx >= 0 ? 1 : -1; // 水平方向の符号
+
+    let d;
+    if (Math.abs(dx) < 0.5) {
+        // 垂直一直線
+        d = `M ${x1} ${y1} L ${x2} ${y2}`;
+    } else {
+        // 垂直→水平→垂直のエルボーカーブ（角を Q で丸める）
+        d = [
+            `M ${x1} ${y1}`,
+            `L ${x1} ${midY - vR}`,
+            `Q ${x1} ${midY} ${x1 + sx * hR} ${midY}`,
+            `L ${x2 - sx * hR} ${midY}`,
+            `Q ${x2} ${midY} ${x2} ${midY + vR}`,
+            `L ${x2} ${y2}`,
+        ].join(' ');
+    }
+
+    path.setAttribute('d', d);
+    return path;
+}
+
+// おぐ風コンパクトレイアウトでツリーを描画する
+// インタフェースは drawSVGTree と同じ。既存の applyMatchColors/buildSVGLegend をそのまま流用する
+function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
+    const svgGroup  = document.getElementById('tree-group');
+    const treeSvg   = document.getElementById('tree-svg');
+    const emptyState = document.querySelector('#tab-tree-viz .empty-state');
+
+    // 共有状態をリセット（applyMatchColors が参照する Map も初期化）
+    svgGroup.innerHTML  = '';
+    nodeObjectToNodeId  = new Map();
+    nodeIdToRenderMeta  = new Map();
+    nodeBadgeOffsets    = new Map();
+    currentSVGHoverType = null;
+
+    const legendEl = document.getElementById('svg-match-legend');
+    if (legendEl) legendEl.innerHTML = '';
+
+    if (!tree) {
+        treeSvg.classList.remove('active');
+        emptyState.style.display = 'flex';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+    treeSvg.classList.add('active');
+
+    const PADDING   = { top: 42, left: 20, right: 20, bottom: 20 };
+    const NODE_H    = 36;
+    const LEVEL_H   = 68;  // 親上端→子上端の縦距離
+    const H_SEP     = 10;  // 兄弟間の最小水平間隔
+    const BASE_W    = 90;  // 幅計算の基準値（calculateNodeWidth に渡す）
+
+    const widthFn = (node) => calculateNodeWidth(formatNode(node), BASE_W);
+
+    // Phase 1: コンパクトレイアウト計算（node._cX, node._cW を設定）
+    const rootNode = tree.GetRootNode();
+    computeCompactLayout(rootNode, H_SEP, widthFn);
+
+    // Phase 2: ノードを描画し、コネクタ座標を収集する
+    let maxX = 0;
+    let maxY = 0;
+    const connectorQueue = []; // { x1,y1,x2,y2 } を後でまとめて挿入
+
+    function drawNodeCompact(node, y, nodeId) {
+        const x = PADDING.left + (node._cX || 0);
+        const w = node._cW || BASE_W;
+
+        maxX = Math.max(maxX, x + w);
+        maxY = Math.max(maxY, y + NODE_H);
+
+        const nodeText = formatNode(node);
+        const myCenter = x + w / 2;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width', w);
+        rect.setAttribute('height', NODE_H);
+        rect.setAttribute('rx', 6);
+        svgGroup.appendChild(rect);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', myCenter);
+        text.setAttribute('y', y + NODE_H / 2 + 5);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('pointer-events', 'none');
+        text.textContent = nodeText;
+        svgGroup.appendChild(text);
+
+        // 既存 Map に登録（applyMatchColors がこれを参照する）
+        nodeObjectToNodeId.set(node, nodeId);
+        nodeIdToRenderMeta.set(nodeId, {
+            nodeId, nodeObject: node, rectEl: rect, textEl: text,
+            nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
+            matchIndexes: [], captureNames: [], isMatchRoot: false,
+        });
+
+        // 子ノードを再帰的に描画し、コネクタ情報を積む
+        for (let i = 0; i < node.NumChildren(); i++) {
+            const child    = node.NthChildSubtree(i).GetRootNode();
+            const childY   = y + LEVEL_H;
+            const childCx  = PADDING.left + (child._cX || 0) + (child._cW || BASE_W) / 2;
+            connectorQueue.push({ x1: myCenter, y1: y + NODE_H, x2: childCx, y2: childY });
+            drawNodeCompact(child, childY, nodeId + '.' + i);
+        }
+    }
+
+    try {
+        drawNodeCompact(rootNode, PADDING.top, '0');
+
+        // Phase 3: コネクタをノードの背面に挿入
+        for (const c of connectorQueue) {
+            const pathEl = createConnectorPath(c.x1, c.y1, c.x2, c.y2);
+            svgGroup.insertBefore(pathEl, svgGroup.firstChild);
+        }
+
+        const svgWidth  = maxX + PADDING.right;
+        const svgHeight = maxY + PADDING.bottom;
+        originalSvgWidth  = svgWidth;
+        originalSvgHeight = svgHeight;
+        treeSvg.setAttribute('width',  svgWidth);
+        treeSvg.setAttribute('height', svgHeight);
+        treeSvg.removeAttribute('viewBox');
+
+        // 既存の色付け・凡例をそのまま流用
+        if (matchResults) {
+            const colorResult = applyMatchColors(matchResults, matchMode, patternStr || '');
+            if (colorResult) buildSVGLegend(colorResult.matchMeta, colorResult.captureMeta);
+        }
+    } catch (err) {
+        console.error('Error in drawSVGTreeCompact:', err);
+    }
+}
+
+// レイアウト切替トグル関数
+function toggleLayoutStyle() {
+    useCompactLayout = !useCompactLayout;
+    const btn = document.getElementById('layout-toggle-btn');
+    btn.textContent  = useCompactLayout ? 'Compact ✓' : 'Standard';
+    btn.classList.toggle('active', useCompactLayout);
+
+    // 現在のツリーを即座に再描画
+    if (currentTargetTree) {
+        const pattern        = patternInput.value.trim();
+        const svgMode        = getMatchMode();
+        const svgMatchResults = svgMode === 'TreeMatch'
+            ? (window.lastMatchedResult  || null)
+            : (window.lastMatchedResults || null);
+        (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(
+            currentTargetTree, svgMatchResults, svgMode, pattern);
+        currentZoom = 1.0;
+        applyZoom();
+    }
+}
+
 // ===== SVG カラーリング処理 =====
 
 // match 色パレット（4色で循環する）
@@ -1791,7 +2056,8 @@ function executeMatchWithTree() {
             const svgMatchResults = svgMode === 'TreeMatch'
                 ? (window.lastMatchedResult  || null)
                 : (window.lastMatchedResults || null);
-            drawSVGTree(targetTree, svgMatchResults, svgMode, pattern);
+            const _drawFn = useCompactLayout ? drawSVGTreeCompact : drawSVGTree;
+            _drawFn(targetTree, svgMatchResults, svgMode, pattern);
 
             // 新しいツリーを描いたらズームを初期値へ戻す
             currentZoom = 1.0;
@@ -1819,11 +2085,11 @@ function executeMatchWithTree() {
                 setupDebugMode(result, pattern, targetTree);
             }
         } catch (error) {
-            drawSVGTree(null);
+            (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(null);
             document.getElementById('zoom-controls').style.display = 'none';
         }
     } else {
-        drawSVGTree(null);
+        (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(null);
         document.getElementById('zoom-controls').style.display = 'none';
     }
 }

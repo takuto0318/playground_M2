@@ -780,6 +780,49 @@ textarea::placeholder {
     display: block;
 }
 
+/* ツリー表示ツールバー（SVG 上部・通常フロー） */
+.tree-viz-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.25rem;
+    margin-bottom: 0.4rem;
+    position: relative;
+    z-index: 2;
+}
+
+.toolbar-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+.layout-toggle-btn {
+    font-size: 11px;
+    padding: 3px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    line-height: 1.5;
+}
+
+.layout-toggle-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-color: var(--primary-color);
+}
+
+.layout-toggle-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
 /* ズームコントロール（ツリー表示の拡大縮小ボタン群） */
 .zoom-controls {
     position: absolute;
@@ -845,6 +888,13 @@ textarea::placeholder {
 #tree-svg line {
     stroke: var(--border-color);
     stroke-width: 2;
+}
+
+/* おぐ風コンパクトレイアウトのエルボーコネクタ */
+#tree-svg path.tree-connector {
+    fill: none;
+    stroke: var(--border-color);
+    stroke-width: 1.5;
 }
 
 #tree-svg circle {

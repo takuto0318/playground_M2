@@ -147,6 +147,11 @@
                 <!-- Tree Visualizationタブ：SVGでツリー構造を視覚的に描画する -->
                 <div class="tab-content" id="tab-tree-viz">
                     <div class="tree-viz-area">
+                        <!-- ツールバー：表示モード切替（SVG の上に通常フローで配置） -->
+                        <div id="tree-viz-toolbar" class="tree-viz-toolbar">
+                            <span class="toolbar-label">Layout</span>
+                            <button id="layout-toggle-btn" class="layout-toggle-btn">Standard</button>
+                        </div>
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                                 <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
@@ -158,7 +163,7 @@
                         <svg id="tree-svg" width="100%" height="500" xmlns="http://www.w3.org/2000/svg">
                             <g id="tree-group" transform="scale(1,1)"></g>
                         </svg>
-                        <!-- ズームコントロール：拡大・縮小・リセットボタン
+                        <!-- ズームコントロール：拡大・縮小・リセットボタン（右下に absolute 配置）
                              ツリーが表示されるまでは非表示にしておく -->
                         <div id="zoom-controls" class="zoom-controls" style="display: none;">
                             <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
