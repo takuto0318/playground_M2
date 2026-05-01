@@ -769,6 +769,11 @@ textarea::placeholder {
     padding: 2rem;
     display: flex;
     flex-direction: column;
+    overflow: auto;
+}
+
+.tree-viz-area:fullscreen #tree-svg {
+    flex-shrink: 0;
 }
 
 .tree-viz-area:-webkit-full-screen {
@@ -776,6 +781,11 @@ textarea::placeholder {
     padding: 2rem;
     display: flex;
     flex-direction: column;
+    overflow: auto;
+}
+
+.tree-viz-area:-webkit-full-screen #tree-svg {
+    flex-shrink: 0;
 }
 
 .tree-viz-area:-ms-fullscreen {
@@ -783,6 +793,11 @@ textarea::placeholder {
     padding: 2rem;
     display: flex;
     flex-direction: column;
+    overflow: auto;
+}
+
+.tree-viz-area:-ms-fullscreen #tree-svg {
+    flex-shrink: 0;
 }
 
 .tree-viz-area .empty-state {
