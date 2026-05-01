@@ -151,6 +151,9 @@
                         <div id="tree-viz-toolbar" class="tree-viz-toolbar">
                             <span class="toolbar-label">Layout</span>
                             <button id="layout-toggle-btn" class="layout-toggle-btn">Standard</button>
+                            <span class="toolbar-sep"></span>
+                            <span class="toolbar-label">Direction</span>
+                            <button id="direction-toggle-btn" class="layout-toggle-btn" disabled>Vertical</button>
                         </div>
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -180,6 +183,11 @@
                             <button id="zoom-reset-btn" class="zoom-btn" title="Reset Zoom">
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                                     <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                </svg>
+                            </button>
+                            <button id="fullscreen-btn" class="zoom-btn" title="Toggle Fullscreen">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
                             </button>
                         </div>

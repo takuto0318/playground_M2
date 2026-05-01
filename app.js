@@ -44,6 +44,10 @@ let originalSvgHeight = 500;// SVG の元の高さ（ズームリセット時に
 // レイアウト切替フラグ（false = 標準, true = おぐ風コンパクト）
 let useCompactLayout = false;
 
+// 向き切替（'vertical' = 縦向き, 'horizontal' = 横向き）
+// Compact レイアウト時のみ有効
+let treeOrientation = 'vertical';
+
 // デバッグツリー側のズーム状態
 let debugZoom = 1.0;
 let debugOriginalSvgWidth = 800;// デバッグツリーは通常のツリーと同じサイズで作るが、ズームリセットの基準を分けておくと、デバッグ用に大きくしておいてもリセットが効くようになる
@@ -94,6 +98,7 @@ function init() {
     document.getElementById('zoom-in-btn').addEventListener('click', zoomIn);
     document.getElementById('zoom-out-btn').addEventListener('click', zoomOut);
     document.getElementById('zoom-reset-btn').addEventListener('click', zoomReset);
+    document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
 
     // デバッグ表示のズーム操作
     document.getElementById('debug-zoom-in-btn').addEventListener('click', debugZoomIn);
@@ -102,6 +107,9 @@ function init() {
 
     // レイアウト切替ボタン
     document.getElementById('layout-toggle-btn').addEventListener('click', toggleLayoutStyle);
+
+    // 向き切替ボタン
+    document.getElementById('direction-toggle-btn').addEventListener('click', toggleTreeOrientation);
 
     // 外側をクリックしたらドロップダウンを閉じる
     // 開きっぱなしになると操作しづらいため
@@ -1508,24 +1516,238 @@ function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
     }
 }
 
+// 現在の状態に応じた描画関数を返す
+function getCurrentDrawFn() {
+    if (!useCompactLayout) return drawSVGTree;
+    return treeOrientation === 'horizontal' ? drawSVGTreeCompactHorizontal : drawSVGTreeCompact;
+}
+
 // レイアウト切替トグル関数
 function toggleLayoutStyle() {
     useCompactLayout = !useCompactLayout;
-    const btn = document.getElementById('layout-toggle-btn');
-    btn.textContent  = useCompactLayout ? 'Compact ✓' : 'Standard';
+    const btn    = document.getElementById('layout-toggle-btn');
+    const dirBtn = document.getElementById('direction-toggle-btn');
+    btn.textContent = useCompactLayout ? 'Compact ✓' : 'Standard';
     btn.classList.toggle('active', useCompactLayout);
 
-    // 現在のツリーを即座に再描画
+    // Direction ボタンは Compact 時のみ有効
+    dirBtn.disabled = !useCompactLayout;
+
     if (currentTargetTree) {
-        const pattern        = patternInput.value.trim();
-        const svgMode        = getMatchMode();
+        const pattern         = patternInput.value.trim();
+        const svgMode         = getMatchMode();
         const svgMatchResults = svgMode === 'TreeMatch'
             ? (window.lastMatchedResult  || null)
             : (window.lastMatchedResults || null);
-        (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(
-            currentTargetTree, svgMatchResults, svgMode, pattern);
+        getCurrentDrawFn()(currentTargetTree, svgMatchResults, svgMode, pattern);
         currentZoom = 1.0;
         applyZoom();
+    }
+}
+
+// 向き切替トグル関数（Compact 時のみ呼ばれる）
+function toggleTreeOrientation() {
+    treeOrientation = treeOrientation === 'vertical' ? 'horizontal' : 'vertical';
+    const btn = document.getElementById('direction-toggle-btn');
+    btn.textContent = treeOrientation === 'horizontal' ? 'Horizontal ✓' : 'Vertical';
+    btn.classList.toggle('active', treeOrientation === 'horizontal');
+
+    if (currentTargetTree) {
+        const pattern         = patternInput.value.trim();
+        const svgMode         = getMatchMode();
+        const svgMatchResults = svgMode === 'TreeMatch'
+            ? (window.lastMatchedResult  || null)
+            : (window.lastMatchedResults || null);
+        getCurrentDrawFn()(currentTargetTree, svgMatchResults, svgMode, pattern);
+        currentZoom = 1.0;
+        applyZoom();
+    }
+}
+
+// ===== 横向きコンパクトレイアウト =====
+//
+// 縦向き compact では depth を y 軸・兄弟方向を x 軸に使うが、
+// 横向きでは depth を x 軸・兄弟方向を y 軸に使う。
+// SVG rotate は使わず、座標を直接計算することで
+// バッジ・hover・zoom・legend が崩れないようにしている。
+
+// 横向き接続線: 親右端中央 → 子左端中央 を水平→垂直→水平 elbow で繋ぐ
+function createHorizontalConnectorPath(x1, y1, x2, y2) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'tree-connector');
+
+    const midX = Math.round((x1 + x2) / 2);
+    const dy   = y2 - y1;
+    const r    = 4;
+    const vR   = Math.min(r, Math.abs(dy) / 2);
+    const hR   = Math.min(r, Math.abs(x2 - x1) / 2);
+    const sy   = dy >= 0 ? 1 : -1;
+
+    let d;
+    if (Math.abs(dy) < 0.5) {
+        // 水平一直線
+        d = `M ${x1} ${y1} L ${x2} ${y2}`;
+    } else {
+        d = [
+            `M ${x1} ${y1}`,
+            `L ${midX - hR} ${y1}`,
+            `Q ${midX} ${y1} ${midX} ${y1 + sy * vR}`,
+            `L ${midX} ${y2 - sy * vR}`,
+            `Q ${midX} ${y2} ${midX + hR} ${y2}`,
+            `L ${x2} ${y2}`,
+        ].join(' ');
+    }
+
+    path.setAttribute('d', d);
+    return path;
+}
+
+// アウトライン型接続線: barX で縦に下り、toY で横に折れて子の左端へ向かう（縦→横の inverted-L）
+// barX: 縦線の x 座標（子の左端より少し左）
+// fromY: 縦線の開始 y（親の中央 y）
+// toY: 折れ点の y（子の中央 y）
+// toX: 横線の終点 x（子ノードの左端）
+function createOutlineConnectorPath(barX, fromY, toY, toX) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'tree-connector');
+    const r = Math.min(4, Math.abs(toX - barX) / 2, Math.abs(toY - fromY) / 2);
+    let d;
+    if (Math.abs(toY - fromY) < 0.5) {
+        d = `M ${barX} ${fromY} L ${toX} ${toY}`;
+    } else {
+        d = [
+            `M ${barX} ${fromY}`,
+            `L ${barX} ${toY - r}`,
+            `Q ${barX} ${toY} ${barX + r} ${toY}`,
+            `L ${toX} ${toY}`,
+        ].join(' ');
+    }
+    path.setAttribute('d', d);
+    return path;
+}
+
+// アウトライン型横向き compact 描画
+// - 各ノードを preorder 順に 1 行 1 ノードで縦に並べる
+// - X 座標: PADDING.left + depth * INDENT_X（固定インデント）
+// - Y 座標: PADDING.top + rowIndex * ROW_H（行番号で決定）
+// - 子は必ず親より下（rowIndex が大きい）→ルートより上にノードが出ない
+// - 接続線: createOutlineConnectorPath で縦→横の inverted-L 形状
+function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr) {
+    const svgGroup   = document.getElementById('tree-group');
+    const treeSvg    = document.getElementById('tree-svg');
+    const emptyState = document.querySelector('#tab-tree-viz .empty-state');
+
+    svgGroup.innerHTML  = '';
+    nodeObjectToNodeId  = new Map();
+    nodeIdToRenderMeta  = new Map();
+    nodeBadgeOffsets    = new Map();
+    currentSVGHoverType = null;
+
+    const legendEl = document.getElementById('svg-match-legend');
+    if (legendEl) legendEl.innerHTML = '';
+
+    if (!tree) {
+        treeSvg.classList.remove('active');
+        emptyState.style.display = 'flex';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+    treeSvg.classList.add('active');
+
+    const PADDING  = { top: 20, left: 20, right: 40, bottom: 20 };
+    const NODE_H   = 36;
+    const ROW_H    = 50;   // NODE_H + 行間隔(14) — バッジ重なり防止のため拡大
+    const INDENT_X = 48;   // depth 1 段あたりの横インデント量
+    const BASE_W   = 90;
+
+    const rootNode = tree.GetRootNode();
+
+    // Phase 1: preorder 順に行番号を割り当て（node._row）
+    // preorder なので親は必ず子より小さい行番号になり、上に配置される
+    let rowCursor = 0;
+    (function assignRow(node) {
+        node._row = rowCursor++;
+        for (let i = 0; i < node.NumChildren(); i++) {
+            assignRow(node.NthChildSubtree(i).GetRootNode());
+        }
+    })(rootNode);
+
+    // Phase 2: 描画 + コネクタ収集
+    let maxX = 0;
+    let maxY = 0;
+    const connectorQueue = [];
+
+    try {
+        (function drawNodeH(node, depth, nodeId) {
+            const x = PADDING.left + depth * INDENT_X;
+            const y = PADDING.top  + node._row * ROW_H;
+            const w = calculateNodeWidth(formatNode(node), BASE_W);
+
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + NODE_H);
+
+            const myCenterY = y + NODE_H / 2;
+
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', x);
+            rect.setAttribute('y', y);
+            rect.setAttribute('width', w);
+            rect.setAttribute('height', NODE_H);
+            rect.setAttribute('rx', 6);
+            svgGroup.appendChild(rect);
+
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', x + w / 2);
+            text.setAttribute('y', y + NODE_H / 2 + 5);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('pointer-events', 'none');
+            text.textContent = formatNode(node);
+            svgGroup.appendChild(text);
+
+            nodeObjectToNodeId.set(node, nodeId);
+            nodeIdToRenderMeta.set(nodeId, {
+                nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
+                matchIndexes: [], captureNames: [], isMatchRoot: false,
+            });
+
+            if (node.NumChildren() > 0) {
+                // 縦バーの x 座標: 子の左端より INDENT_X/4 だけ左（アウトライン棒の位置）
+                const barX = PADDING.left + (depth + 1) * INDENT_X - Math.round(INDENT_X / 4);
+                const childLeftX = PADDING.left + (depth + 1) * INDENT_X;
+                for (let i = 0; i < node.NumChildren(); i++) {
+                    const child = node.NthChildSubtree(i).GetRootNode();
+                    const childCenterY = PADDING.top + child._row * ROW_H + NODE_H / 2;
+                    connectorQueue.push({ barX, fromY: myCenterY, toY: childCenterY, toX: childLeftX });
+                    drawNodeH(child, depth + 1, nodeId + '.' + i);
+                }
+            }
+        })(rootNode, 0, '0');
+
+        // コネクタをノード背面に挿入
+        for (const c of connectorQueue) {
+            const pathEl = createOutlineConnectorPath(c.barX, c.fromY, c.toY, c.toX);
+            svgGroup.insertBefore(pathEl, svgGroup.firstChild);
+        }
+
+        const svgWidth  = maxX + PADDING.right;
+        const svgHeight = maxY + PADDING.bottom;
+        originalSvgWidth  = svgWidth;
+        originalSvgHeight = svgHeight;
+        treeSvg.setAttribute('width',  svgWidth);
+        treeSvg.setAttribute('height', svgHeight);
+        treeSvg.removeAttribute('viewBox');
+
+        const treeVizArea = document.querySelector('.tree-viz-area');
+        if (treeVizArea) { treeVizArea.scrollLeft = 0; treeVizArea.scrollTop = 0; }
+
+        if (matchResults) {
+            const colorResult = applyMatchColors(matchResults, matchMode, patternStr || '');
+            if (colorResult) buildSVGLegend(colorResult.matchMeta, colorResult.captureMeta);
+        }
+    } catch (err) {
+        console.error('Error in drawSVGTreeCompactHorizontal:', err);
     }
 }
 
@@ -1978,6 +2200,29 @@ function zoomReset() {
     applyZoom();
 }
 
+// ツリービジュアライゼーションのフルスクリーン切り替え（各ブラウザAPI対応）
+function toggleFullscreen() {
+    const treeVizArea = document.querySelector('.tree-viz-area');
+
+    if (!document.fullscreenElement) {
+        if (treeVizArea.requestFullscreen) {
+            treeVizArea.requestFullscreen();
+        } else if (treeVizArea.webkitRequestFullscreen) {
+            treeVizArea.webkitRequestFullscreen();
+        } else if (treeVizArea.msRequestFullscreen) {
+            treeVizArea.msRequestFullscreen();
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    }
+}
+
 // ===== デバッグツリー用ズーム機能 =====
 
 function applyDebugZoom() {// デバッグツリーにズームを適用する関数。これでデバッグツリーの表示を拡大・縮小できるようになる
@@ -2056,8 +2301,7 @@ function executeMatchWithTree() {
             const svgMatchResults = svgMode === 'TreeMatch'
                 ? (window.lastMatchedResult  || null)
                 : (window.lastMatchedResults || null);
-            const _drawFn = useCompactLayout ? drawSVGTreeCompact : drawSVGTree;
-            _drawFn(targetTree, svgMatchResults, svgMode, pattern);
+            getCurrentDrawFn()(targetTree, svgMatchResults, svgMode, pattern);
 
             // 新しいツリーを描いたらズームを初期値へ戻す
             currentZoom = 1.0;
@@ -2085,11 +2329,11 @@ function executeMatchWithTree() {
                 setupDebugMode(result, pattern, targetTree);
             }
         } catch (error) {
-            (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(null);
+            getCurrentDrawFn()(null);
             document.getElementById('zoom-controls').style.display = 'none';
         }
     } else {
-        (useCompactLayout ? drawSVGTreeCompact : drawSVGTree)(null);
+        getCurrentDrawFn()(null);
         document.getElementById('zoom-controls').style.display = 'none';
     }
 }

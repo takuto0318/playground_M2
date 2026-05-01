@@ -763,6 +763,28 @@ textarea::placeholder {
     max-width: 100%;
 }
 
+/* Fullscreen mode */
+.tree-viz-area:fullscreen {
+    background: #ffffff;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.tree-viz-area:-webkit-full-screen {
+    background: #ffffff;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.tree-viz-area:-ms-fullscreen {
+    background: #ffffff;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+}
+
 .tree-viz-area .empty-state {
     position: absolute;
     top: 0;
@@ -823,6 +845,20 @@ textarea::placeholder {
     border-color: var(--primary-color);
 }
 
+.toolbar-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border-color);
+    margin: 0 0.25rem;
+    flex-shrink: 0;
+}
+
+.layout-toggle-btn:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 /* ズームコントロール（ツリー表示の拡大縮小ボタン群） */
 .zoom-controls {
     position: absolute;
@@ -837,6 +873,28 @@ textarea::placeholder {
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     z-index: 10;
+}
+
+/* Zoom controls in fullscreen mode - fixed to screen */
+.tree-viz-area:fullscreen .zoom-controls {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1000;
+}
+
+.tree-viz-area:-webkit-full-screen .zoom-controls {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1000;
+}
+
+.tree-viz-area:-ms-fullscreen .zoom-controls {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1000;
 }
 
 .zoom-btn {
