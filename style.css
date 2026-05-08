@@ -459,6 +459,122 @@ textarea::placeholder {
     flex: 1;
 }
 
+/* Target Source セレクタ（Affordance UI） */
+.target-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Target Mode セグメントボタン（Affordance UI） */
+.target-mode-toggle {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    overflow: visible; /* Code ▼ ドロップダウンがはみ出せるように */
+}
+
+.target-mode-btn {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 3px 9px;
+    border: none;
+    background: var(--bg-surface);
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    text-align: center;
+}
+
+/* 3スロットを固定幅で揃える（TreeConstruct が収まる幅を基準） */
+.target-mode-toggle > .target-mode-btn,
+.target-mode-toggle > .target-mode-code-wrap {
+    width: 95px;
+    flex: 0 0 95px;
+}
+
+/* overflow:visible にしたので、先頭/末尾ボタンに角丸を個別に付ける */
+.target-mode-toggle > .target-mode-btn:first-child {
+    border-radius: 4px 0 0 4px;
+}
+.target-mode-toggle > .target-mode-btn:last-child {
+    border-radius: 0 4px 4px 0;
+}
+
+/* ボタン間のセパレータ（code-wrap を挟む構造に対応） */
+.target-mode-btn + .target-mode-btn,
+.target-mode-btn + .target-mode-code-wrap > .target-mode-btn,
+.target-mode-code-wrap + .target-mode-btn {
+    border-left: 1px solid var(--border-color);
+}
+
+.target-mode-btn.active {
+    background: var(--primary-color, #3b82f6);
+    color: #ffffff;
+}
+
+.target-mode-btn:not(.active):hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary, #1e293b);
+}
+
+/* Code ボタンの wrap（ドロップダウンの基点） */
+.target-mode-code-wrap {
+    position: relative;
+    display: flex;
+}
+
+/* Code ボタンは wrap 全体を埋めて高さを揃える */
+.target-mode-code-wrap > .target-mode-btn {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Code ▼ ドロップダウン（言語メニュー） */
+.target-code-lang-menu {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 0;
+    min-width: 100%;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    z-index: 200;
+    padding: 2px 0;
+}
+
+.target-code-lang-item {
+    display: block;
+    padding: 4px 10px;
+    font-size: 0.7rem;
+    color: var(--primary-color, #3b82f6);
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.target-code-lang-item:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary, #1e293b);
+}
+
+/* Target Source 説明文 */
+.target-source-help {
+    margin: 0;
+    padding: 4px 1rem 5px;
+    font-size: 0.7rem;
+    color: var(--text-muted, #94a3b8);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-color);
+    line-height: 1.4;
+}
+
 /* 結果セクション（右カラム全体） */
 .result-section {
     background: var(--bg-surface);

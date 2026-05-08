@@ -71,7 +71,21 @@
                  マッチ対象となるツリー構造を TreeConstruct 形式で入力する欄 -->
             <section class="input-section target-section">
                 <div class="section-header">
-                    <label for="target-input">TARGET (TreeConstruct format)</label>
+                    <div class="target-header-left">
+                        <label for="target-input">TARGET</label>
+                        <div class="target-mode-toggle">
+                            <button class="target-mode-btn active" data-source="treeconstruct">TreeConstruct</button>
+                            <div class="target-mode-code-wrap">
+                                <button id="target-code-mode-btn" class="target-mode-btn" data-source="code">Code ▼</button>
+                                <div id="target-code-lang-menu" class="target-code-lang-menu" style="display:none;">
+                                    <span class="target-code-lang-item" data-label="JavaScript">JavaScript</span>
+                                    <span class="target-code-lang-item" data-label="C">C</span>
+                                    <span class="target-code-lang-item" data-label="Python">Python</span>
+                                </div>
+                            </div>
+                            <button class="target-mode-btn" data-source="json">JSON</button>
+                        </div>
+                    </div>
                     <div class="sample-controls">
                         <!-- サンプル読み込みボタン：デフォルトのサンプルを素早くロードする -->
                         <button id="sample-btn" class="btn-sample">
@@ -91,6 +105,7 @@
                         </button>
                     </div>
                 </div>
+                <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
                 <textarea id="target-input" placeholder="A > B C D" rows="8"></textarea>
 
                 <!-- サンプルメニュー：カテゴリ別のサンプルパターン一覧

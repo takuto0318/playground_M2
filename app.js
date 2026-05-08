@@ -111,6 +111,16 @@ function init() {
     // 向き切替ボタン
     document.getElementById('direction-toggle-btn').addEventListener('click', toggleTreeOrientation);
 
+    // Target Mode ボタン（Affordance UI）
+    document.querySelectorAll('.target-mode-btn').forEach(btn => {
+        btn.addEventListener('click', handleTargetModeClick);
+    });
+
+    // Code 言語メニュー選択
+    document.querySelectorAll('.target-code-lang-item').forEach(item => {
+        item.addEventListener('click', handleCodeLangSelect);
+    });
+
     // 外側をクリックしたらドロップダウンを閉じる
     // 開きっぱなしになると操作しづらいため
     document.addEventListener('click', (e) => {
@@ -1562,6 +1572,37 @@ function toggleTreeOrientation() {
         currentZoom = 1.0;
         applyZoom();
     }
+}
+
+// Target Mode ボタンクリック処理（Affordance UI のみ。内部マッチ処理は変更しない）
+const TARGET_SOURCE_HELP = {
+    treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
+    code:          'ソースコードを入力するモードです。現在はUI試作中です。',
+    json:          'JSON AST または汎用JSONを入力するモードです。現在はUI試作中です。',
+};
+
+function handleCodeLangSelect(e) {
+    const label  = e.currentTarget.dataset.label;
+    const codeBtn = document.getElementById('target-code-mode-btn');
+    if (codeBtn) codeBtn.textContent = `${label} ▼`;
+    const menu = document.getElementById('target-code-lang-menu');
+    if (menu) menu.style.display = 'none';
+}
+
+function handleTargetModeClick(e) {
+    const clicked = e.currentTarget;
+    const source  = clicked.dataset.source;
+
+    document.querySelectorAll('.target-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn === clicked);
+    });
+
+    const helpEl = document.getElementById('target-source-help');
+    if (helpEl) helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
+
+    // Code モードのときだけ言語選択UIを表示
+    const langEl = document.getElementById('target-code-lang-menu');
+    if (langEl) langEl.style.display = source === 'code' ? 'block' : 'none';
 }
 
 // ===== 横向きコンパクトレイアウト =====
