@@ -24,8 +24,13 @@ body {
     background-color: var(--bg-main);
     color: var(--text-primary);
     line-height: 1.6;
-    min-height: 100vh;
-    zoom: 0.9;
+    width: 125vw;
+    height: 125vh;
+    min-height: 125vh;
+    zoom: 0.8;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 /* ヘッダー */
@@ -33,6 +38,7 @@ header {
     background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
     padding: 1rem 2rem 1.15rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex: 0 0 auto;
 }
 
 .header-content {
@@ -62,8 +68,10 @@ header h1 {
     display: grid;
     grid-template-columns: minmax(360px, 0.75fr) minmax(0, 1.45fr);
     gap: 2rem;
-    height: calc(100vh - 20px);
-    min-height: calc(100vh - 20px);
+    flex: 1 1 auto;
+    width: 100%;
+    height: auto;
+    min-height: 0;
 }
 
 .left-column,
@@ -73,6 +81,7 @@ header h1 {
     gap: 1.5rem;
     min-width: 0;
     min-height: 0;
+    height: 100%;
 }
 
 /* 入力セクション */
@@ -91,6 +100,7 @@ header h1 {
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .section-header {
