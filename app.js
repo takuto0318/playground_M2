@@ -9,8 +9,8 @@ const Tree1 = useNewTreeClass('Tree1', '__A', '__B');
 // 画面で使う DOM 要素を先に取得しておく
 const patternInput = document.getElementById('pattern-input'); // ユーザーがパターンを入力する欄
 const targetInput = document.getElementById('target-input'); // ユーザーがマッチさせたい対象ツリーを入力する欄
+const targetHighlightLayer = document.getElementById('target-highlight-layer'); // Code モードでソース範囲を色付けする背面レイヤ
 const resultArea = document.getElementById('result-area'); // マッチ結果やツリー可視化を表示するエリア
-const sampleBtn = document.getElementById('sample-btn'); // ランダムサンプルを読み込むボタン
 const matchModeRadios = document.getElementsByName('match-mode');// マッチモードを選ぶラジオボタン（TreeMatch と TreeMatchFind）
 const historyBtn = document.getElementById('history-btn');// パターン履歴を開くボタン
 const historyDropdown = document.getElementById('history-dropdown');// パターン履歴のドロップダウンメニュー
@@ -18,9 +18,6 @@ const historyList = document.getElementById('history-list');// 履歴アイテ�
 const clearHistoryBtn = document.getElementById('clear-history-btn');// 履歴を全て消すボタン
 const copyPatternBtn = document.getElementById('copy-pattern-btn');// 現在のパターンをクリップボードにコピーするボタン
 const copyResultBtn = document.getElementById('copy-result-btn');// 最後のマッチ結果をクリップボードにコピーするボタン
-const samplesMenuBtn = document.getElementById('samples-menu-btn');// サンプルメニューを開くボタン
-const samplesMenu = document.getElementById('samples-menu');// サンプルメニューのドロップダウン
-const samplesList = document.getElementById('samples-list');// サンプルアイテムを表示するリスト
 
 // ユーザーが入力を終えるのを待ってからマッチ処理を実行するためのタイマー ID を保存しておく変数
 let debounceTimer = null;// タイマー ID を保存しておき、次の入力があったら前のタイマーをクリアする形で実装する
@@ -33,6 +30,10 @@ let lastMatchResult = null;
 // JSON 読み込みや Code Import で作ったツリーを再利用するため
 let currentTargetTree = null;
 
+// TARGET 欄の入力形式。TreeConstruct 直接入力か、JavaScript コード入力かを区別する。
+let currentTargetSource = 'treeconstruct';
+let currentTargetCodeLang = 'javascript';
+
 // ツリー可視化タブ用のズーム状態
 let currentZoom = 1.0;// ズーム倍率の初期値
 const ZOOM_STEP = 0.1;// ズームイン・アウトのステップ量
@@ -41,12 +42,20 @@ const MAX_ZOOM = 3.0;
 let originalSvgWidth = 800;// SVG の元の幅（ズームリセット時に戻すため）
 let originalSvgHeight = 500;// SVG の元の高さ（ズームリセット時に戻すため）
 
-// レイアウト切替フラグ（false = 標準, true = おぐ風コンパクト）
-let useCompactLayout = false;
+// JavaScript AST 由来の TreeNode とソースコード範囲を対応付ける。
+// TreeConstruct 直接入力では範囲情報がないため、この Map は使われない。
+let nodeSourceRangeMap = new WeakMap();
+
+let temporaryNodeHighlightRect = null;
+let temporaryNodeHighlightTimer = null;
+let pendingTreeViewScrollRestore = null;
+let nodeContextMenu = null;
+
+// 標準レイアウトは使わず、SVG はおぐ風コンパクト描画をデフォルトにする
+let useCompactLayout = true;
 
 // 向き切替（'vertical' = 縦向き, 'horizontal' = 横向き）
-// Compact レイアウト時のみ有効
-let treeOrientation = 'vertical';
+let treeOrientation = 'horizontal';
 
 // デバッグツリー側のズーム状態
 let debugZoom = 1.0;
@@ -60,6 +69,9 @@ function init() {
     // 各 UI にイベントリスナーを設定する
     patternInput.addEventListener('input', handleInputChange);// パターン入力が変わるたびにマッチ処理を呼ぶ
     targetInput.addEventListener('input', handleInputChange);// ターゲット入力が変わるたびにマッチ処理を呼ぶ
+    targetInput.addEventListener('mouseup', handleTargetSelectionChange);
+    targetInput.addEventListener('keyup', handleTargetSelectionChange);
+    targetInput.addEventListener('scroll', syncTargetHighlightScroll);
 
     // ユーザーがターゲット入力欄を直接編集したら currentTargetTree を破棄する
     // 事前読み込みツリーと入力文字列の不一致を防ぐため
@@ -68,9 +80,9 @@ function init() {
             console.log('🗑️ Target input manually edited - clearing currentTargetTree');
             currentTargetTree = null;
         }
+        nodeSourceRangeMap = new WeakMap();
+        clearSourceMatchHighlights();
     });
-
-    sampleBtn.addEventListener('click', loadSample); // ランダムサンプルを読み込むボタン
 
     matchModeRadios.forEach(radio => {// マッチモードのラジオボタンが変わったらマッチ処理を呼ぶ
         radio.addEventListener('change', handleInputChange);
@@ -88,16 +100,17 @@ function init() {
 
     // コピーボタン
     copyPatternBtn.addEventListener('click', copyPattern);
-    copyResultBtn.addEventListener('click', copyResult);
-
-    // サンプルメニュー
-    samplesMenuBtn.addEventListener('click', toggleSamplesMenu);
-    buildSamplesMenu();
+    if (copyResultBtn) {
+        copyResultBtn.addEventListener('click', copyResult);
+    }
 
     // ツリー表示のズーム操作
     document.getElementById('zoom-in-btn').addEventListener('click', zoomIn);
     document.getElementById('zoom-out-btn').addEventListener('click', zoomOut);
-    document.getElementById('zoom-reset-btn').addEventListener('click', zoomReset);
+    const zoomResetBtn = document.getElementById('zoom-reset-btn');
+    if (zoomResetBtn) {
+        zoomResetBtn.addEventListener('click', zoomReset);
+    }
     document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
 
     // デバッグ表示のズーム操作
@@ -105,11 +118,16 @@ function init() {
     document.getElementById('debug-zoom-out-btn').addEventListener('click', debugZoomOut);
     document.getElementById('debug-zoom-reset-btn').addEventListener('click', debugZoomReset);
 
-    // レイアウト切替ボタン
-    document.getElementById('layout-toggle-btn').addEventListener('click', toggleLayoutStyle);
+    // レイアウト切替ボタン。現在のUIでは非表示だが、古いHTMLでも壊れないようにしておく。
+    const layoutToggleBtn = document.getElementById('layout-toggle-btn');
+    if (layoutToggleBtn) {
+        layoutToggleBtn.addEventListener('click', toggleLayoutStyle);
+    }
 
-    // 向き切替ボタン
-    document.getElementById('direction-toggle-btn').addEventListener('click', toggleTreeOrientation);
+    // ツリー表示向きの切替ボタン
+    document.querySelectorAll('.orientation-btn').forEach(btn => {
+        btn.addEventListener('click', () => setTreeOrientation(btn.dataset.orientation));
+    });
 
     // Target Mode ボタン（Affordance UI）
     document.querySelectorAll('.target-mode-btn').forEach(btn => {
@@ -127,9 +145,11 @@ function init() {
         if (!e.target.closest('.pattern-section')) {
             closeHistory();
         }
-        if (!e.target.closest('.target-section')) {
-            closeSamplesMenu();
-        }
+        hideNodeContextMenu();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') hideNodeContextMenu();
     });
 }
 
@@ -171,19 +191,66 @@ function getMatchMode() {// どのマッチモードのラジオボタンが選�
     return 'TreeMatch';
 }
 
+function getCurrentTargetInputText() {
+    return currentTargetSource === 'code' ? targetInput.value : targetInput.value.trim();
+}
+
+function parseJavaScriptCodeToTree(code) {
+    if (typeof acorn === 'undefined') {
+        throw new Error('JavaScript parser acorn is not loaded.');
+    }
+
+    nodeSourceRangeMap = new WeakMap();
+    const ast = acorn.parse(code, {
+        ecmaVersion: 2020,
+        sourceType: 'module',
+        locations: true
+    });
+    const rootNode = convertASTToTreeMatchLib(ast);
+    return new Tree1(new Tree1.BoxClass(rootNode));
+}
+
+function getTargetTreeFromInput(targetStr) {
+    if (currentTargetTree) {
+        console.log('🎯 Using pre-loaded currentTargetTree');
+        return currentTargetTree;
+    }
+
+    if (currentTargetSource === 'code') {
+        if (currentTargetCodeLang !== 'javascript') {
+            throw new Error(`${currentTargetCodeLang} target code parsing is not supported yet.`);
+        }
+        console.log('📝 Parsing JavaScript target code');
+        currentTargetTree = parseJavaScriptCodeToTree(targetStr);
+        return currentTargetTree;
+    }
+
+    if (currentTargetSource === 'json') {
+        throw new Error('JSON target mode is not implemented yet.');
+    }
+
+    console.log('📝 Parsing target from TreeConstruct string');
+    currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
+    return currentTargetTree;
+}
+
 // パターンマッチングを実行する
 // この関数は「入力の取得」「ツリー構築」「履歴保存」「実行関数の振り分け」
 function executeMatch() {
     const pattern = patternInput.value.trim();// パターン入力から余分な空白を取り除いて読み取る
-    const targetStr = targetInput.value.trim();// ターゲット入力から余分な空白を取り除いて読み取る
+    const targetStr = getCurrentTargetInputText();// Code モードでは start/end がずれないよう原文を使う
 
     if (!targetStr) {// ターゲットが空なら結果表示を初期状態に戻す
         resultArea.innerHTML = '<p class="hint">Enter target to see tree visualization...</p>';
+        window.lastMatchedResult = null;
+        window.lastMatchedResults = null;
         return;
     }
 
     if (!pattern) {// パターンが空ならマッチ処理はせず、ツリー表示だけ行う
         resultArea.innerHTML = '<p class="hint">🌳 Tree visualization mode<br>Enter a pattern to perform matching</p>';
+        window.lastMatchedResult = null;
+        window.lastMatchedResults = null;
         // 実際のツリー描画は executeMatchWithTree 側でまとめて行う
         return;
     }
@@ -192,16 +259,7 @@ function executeMatch() {
     resultArea.innerHTML = '<p class="loading">Matching...</p>';
 
     try {
-        // 事前読み込みツリーがあればそれを使い、なければ入力文字列から構築する
-        // Code Import などで一度オブジェクト化したツリーを再利用し、文字列との二重管理をなるべく避ける
-        let targetTree; // どちらのツリーを使うかを決めるための変数
-        if (currentTargetTree) {// 事前読み込みツリーがあればそれを使う
-            console.log('🎯 Using pre-loaded currentTargetTree');
-            targetTree = currentTargetTree;
-        } else {// 事前読み込みツリーがなければ、入力文字列からツリーを構築する
-            console.log('📝 Parsing target from string');
-            targetTree = TreeConstruct(Tree1, targetStr).Tree();// 入力文字列からツリーを構築する。TreeConstruct は Tree1 クラスとターゲット文字列を受け取り、ツリーオブジェクトを返す想定
-        }
+        const targetTree = getTargetTreeFromInput(targetStr);
 
         // どのマッチ関数を使うかを取得する
         const mode = getMatchMode();// 例えば 'TreeMatch' や 'TreeMatchFind' が返る想定
@@ -335,11 +393,6 @@ function executeTreeMatchFind(targetTree, pattern) {
 function displayMatchSuccess(result) {
     let html = '<p class="match-success">Match: SUCCESS</p>';// マッチ成功のメッセージを表示する
 
-    // Transform タブへ送るボタンを付ける
-    html += '<div class="result-actions">';// Transform タブで再利用できるよう、マッチ結果を送るボタンを表示する
-    html += '<button class="action-btn" onclick="sendToTransform()">Transform This Match →</button>';// クリックされたら sendToTransform 関数を呼ぶ
-    html += '</div>';// ボタンの HTML を組み立てる
-
     // キャプチャ内容を表示する
     html += displayCaptures(result);// キャプチャ内容の表示を組み立てる。これには単一キャプチャとマルチキャプチャの両方が含まれる
 
@@ -359,11 +412,6 @@ function displayMatchFindSuccess(results) {
     results.forEach((result, index) => {// 各マッチ結果を順番に表示するためのループ。index は 0 から始まるマッチの番号
         html += '<div class="result-item">';
         html += `<div class="result-index">Result [${index}]:</div>`;// 各マッチ結果の見出しを表示する。例えば "Result [0]:" のようになる
-
-        // どの結果を Transform するか選べるよう、各結果にボタンを付ける
-        html += '<div class="result-actions">';// Transform タブで再利用できるよう、マッチ結果を送るボタンを表示する
-        html += `<button class="action-btn" onclick="sendToTransformByIndex(${index})">Transform This Match →</button>`;// クリックされたら sendToTransformByIndex 関数を呼ぶ。引数にはこの結果の index を渡す
-        html += '</div>';
 
         html += displayCaptures(result);// キャプチャ内容の表示を組み立てる。これには単一キャプチャとマルチキャプチャの両方が含まれる
         html += '</div>';
@@ -492,7 +540,7 @@ window.toggleCaptureDetails = function(captureId) {
 // ツリー文字列表現を結果欄に表示する displayMatchSuccess 内で呼ばれる関数。TreePrint のようなテキストベースのツリー表示を組み立てるための関数。マッチしたツリー全体を見られるようにする
 function displayTreeVisualization(result) {// マッチしたツリー全体を見られるようにするための関数。TreePrint のようなテキストベースのツリー表示を組み立てる
     let html = '<div class="tree-visualization">';
-    html += '<div class="tree-header">Tree Visualization:</div>';
+    html += '<div class="tree-header">Tree View:</div>';
 
     try {
         const tree = result.GetRootCapture().Tree();// マッチ結果のルートキャプチャからツリーオブジェクトを取得する。これがマッチしたツリー全体を表す想定
@@ -554,6 +602,271 @@ function formatNode(node) {// ノードオブジェクトを受け取り、そ�
     return str;
 }
 
+function isNumericText(value) {
+    return /^-?\d+(?:\.\d+)?$/.test(String(value));
+}
+
+function formatPatternAttrValue(node) {
+    const value = node.Attr1();
+    if (value === undefined || value === null || value === '') return null;
+
+    const type = node.Attr0();
+    const text = String(value);
+
+    if (type === 'Literal') {
+        if (isNumericText(text) || text === 'true' || text === 'false' || text === 'null') {
+            return text;
+        }
+        return JSON.stringify(text);
+    }
+
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text) || isNumericText(text)) {
+        return text;
+    }
+    return JSON.stringify(text);
+}
+
+function nodeToPatternAtom(node) {
+    if (!node) return '';
+
+    const type = node.Attr0() || '';
+    const value = formatPatternAttrValue(node);
+    return value === null ? type : `${type}#${value}`;
+}
+
+function getRenderedNodePath(node) {
+    const nodeId = nodeObjectToNodeId.get(node);
+    if (!nodeId) return [node];
+
+    const path = [];
+    const parts = nodeId.split('.');
+    for (let i = 0; i < parts.length; i++) {
+        const id = parts.slice(0, i + 1).join('.');
+        const meta = nodeIdToRenderMeta.get(id);
+        if (meta?.nodeObject) {
+            path.push(meta.nodeObject);
+        }
+    }
+    return path.length > 0 ? path : [node];
+}
+
+function nodeToReachablePathPattern(node) {
+    const path = getRenderedNodePath(node);
+    return path.map(nodeToPatternAtom).join(' > .* ');
+}
+
+function nodeToReachableTypePathPattern(node) {
+    const path = getRenderedNodePath(node);
+    return path.map(n => n?.Attr0?.() || '').filter(Boolean).join(' > .* ');
+}
+
+function selectTargetSourceForNode(node) {
+    if (currentTargetSource !== 'code') {
+        return;
+    }
+
+    const range = nodeSourceRangeMap.get(node);
+    if (!range || typeof range.start !== 'number' || typeof range.end !== 'number') {
+        return;
+    }
+
+    targetInput.focus();
+    targetInput.setSelectionRange(range.start, range.end);
+    scrollTargetInputToOffset(range.start);
+}
+
+function scrollTargetInputToOffset(offset) {
+    const textBefore = targetInput.value.slice(0, Math.max(0, offset));
+    const lineIndex = textBefore.split('\n').length - 1;
+    const computedStyle = window.getComputedStyle(targetInput);
+    const lineHeight = parseFloat(computedStyle.lineHeight) || 22;
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+
+    // 選択行をTARGET欄の上寄りに置く。少し余白を残して前後の文脈も見えるようにする。
+    const contextLines = 2;
+    targetInput.scrollTop = Math.max(0, (lineIndex - contextLines) * lineHeight + paddingTop);
+}
+
+function findSmallestRenderedNodeCoveringRange(selectionStart, selectionEnd) {
+    let best = null;
+    nodeIdToRenderMeta.forEach(meta => {
+        const range = nodeSourceRangeMap.get(meta.nodeObject);
+        if (!range || typeof range.start !== 'number' || typeof range.end !== 'number') return;
+        if (range.start > selectionStart || range.end < selectionEnd) return;
+
+        const size = range.end - range.start;
+        if (!best || size < best.size) {
+            best = { meta, size };
+        }
+    });
+    return best ? best.meta : null;
+}
+
+function highlightTreeNodeForTargetSelection() {
+    if (currentTargetSource !== 'code') return;
+
+    const selectionStart = targetInput.selectionStart;
+    const selectionEnd = targetInput.selectionEnd;
+    if (typeof selectionStart !== 'number' || typeof selectionEnd !== 'number') return;
+    if (selectionStart === selectionEnd) return;
+
+    const start = Math.min(selectionStart, selectionEnd);
+    const end = Math.max(selectionStart, selectionEnd);
+    const meta = findSmallestRenderedNodeCoveringRange(start, end);
+    if (!meta?.rectEl) return;
+
+    switchTab('tree-viz');
+    flashNodeRect(meta.rectEl);
+    meta.rectEl.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+}
+
+function handleTargetSelectionChange() {
+    window.setTimeout(highlightTreeNodeForTargetSelection, 0);
+}
+
+function flashNodeRect(rect, durationMs = 60000) {
+    if (temporaryNodeHighlightTimer !== null) {
+        window.clearTimeout(temporaryNodeHighlightTimer);
+        temporaryNodeHighlightTimer = null;
+    }
+    if (temporaryNodeHighlightRect) {
+        temporaryNodeHighlightRect.classList.remove('temporary-node-highlight');
+    }
+
+    temporaryNodeHighlightRect = rect;
+    rect.classList.add('temporary-node-highlight');
+
+    temporaryNodeHighlightTimer = window.setTimeout(() => {
+        if (temporaryNodeHighlightRect === rect) {
+            rect.classList.remove('temporary-node-highlight');
+            temporaryNodeHighlightRect = null;
+        }
+        temporaryNodeHighlightTimer = null;
+    }, durationMs);
+}
+
+function getTreeViewScrollSnapshot() {
+    const treeVizArea = document.querySelector('.tree-viz-area');
+    if (!treeVizArea) return null;
+    return {
+        left: treeVizArea.scrollLeft,
+        top: treeVizArea.scrollTop,
+    };
+}
+
+function restoreScrollPositions(pageScrollX, pageScrollY, treeScroll) {
+    if (treeScroll) {
+        const treeVizArea = document.querySelector('.tree-viz-area');
+        if (treeVizArea) {
+            treeVizArea.scrollLeft = treeScroll.left;
+            treeVizArea.scrollTop = treeScroll.top;
+        }
+    }
+    window.scrollTo(pageScrollX, pageScrollY);
+}
+
+function insertTextIntoPatternInput(text) {
+    if (!text) return;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const treeScroll = getTreeViewScrollSnapshot();
+    pendingTreeViewScrollRestore = treeScroll;
+
+    const start = patternInput.selectionStart ?? patternInput.value.length;
+    const end = patternInput.selectionEnd ?? patternInput.value.length;
+    const before = patternInput.value.slice(0, start);
+    const after = patternInput.value.slice(end);
+    const prefix = before && !/\s$/.test(before) ? ' ' : '';
+    const suffix = after && !/^\s/.test(after) ? ' ' : '';
+    const inserted = `${prefix}${text}${suffix}`;
+
+    patternInput.value = before + inserted + after;
+    const cursor = before.length + prefix.length + text.length;
+    patternInput.focus();
+    patternInput.setSelectionRange(cursor, cursor);
+    patternInput.dispatchEvent(new Event('input', { bubbles: true }));
+    restoreScrollPositions(scrollX, scrollY, treeScroll);
+    window.setTimeout(() => restoreScrollPositions(scrollX, scrollY, treeScroll), 0);
+    window.setTimeout(() => restoreScrollPositions(scrollX, scrollY, treeScroll), 350);
+    window.setTimeout(() => {
+        restoreScrollPositions(scrollX, scrollY, treeScroll);
+        if (pendingTreeViewScrollRestore === treeScroll) {
+            pendingTreeViewScrollRestore = null;
+        }
+    }, 700);
+}
+
+function ensureNodeContextMenu() {
+    if (nodeContextMenu) return nodeContextMenu;
+
+    nodeContextMenu = document.createElement('div');
+    nodeContextMenu.className = 'node-context-menu';
+    nodeContextMenu.style.display = 'none';
+    document.body.appendChild(nodeContextMenu);
+    return nodeContextMenu;
+}
+
+function hideNodeContextMenu() {
+    if (nodeContextMenu) {
+        nodeContextMenu.style.display = 'none';
+    }
+}
+
+function addNodeContextMenuItem(menu, label, action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideNodeContextMenu();
+        action();
+    });
+    menu.appendChild(button);
+}
+
+function showNodeContextMenu(event, node) {
+    const menu = ensureNodeContextMenu();
+    menu.innerHTML = '';
+
+    addNodeContextMenuItem(menu, 'このノードをパターンに追加', () => {
+        insertTextIntoPatternInput(nodeToPatternAtom(node));
+    });
+    addNodeContextMenuItem(menu, 'ここまでのパスをパターンに追加(値なし)', () => {
+        insertTextIntoPatternInput(nodeToReachableTypePathPattern(node));
+    });
+    addNodeContextMenuItem(menu, 'ここまでのパスをパターンに追加(値あり)', () => {
+        insertTextIntoPatternInput(nodeToReachablePathPattern(node));
+    });
+
+    menu.style.display = 'block';
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(event.clientX, window.innerWidth - rect.width - 8);
+    const top = Math.min(event.clientY, window.innerHeight - rect.height - 8);
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+}
+
+function attachNodePatternInsertHandler(rect, node) {
+    rect.style.cursor = 'context-menu';
+    rect.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showNodeContextMenu(event, node);
+    });
+}
+
+function attachNodeSourceSelectHandler(rect, node) {
+    rect.addEventListener('click', (event) => {
+        if (event.button !== 0) return;
+        selectTargetSourceForNode(node);
+        flashNodeRect(rect);
+    });
+}
+
 // マッチ失敗時の表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。マッチしなかった場合は、結果エリアに "Match: NO MATCH" と表示する
 function displayMatchFail() {
     resultArea.innerHTML = '<p class="match-fail">Match: NO MATCH</p>';
@@ -579,263 +892,128 @@ function escapeHtml(text) {// 文字列を受け取り、それを HTML エス�
     return div.innerHTML;
 }
 
-// サンプルパターン（カテゴリ別）
-const SAMPLE_PATTERNS = {// パターンのカテゴリごとに、パターンの例をいくつか用意する。これをサンプルメニューで選べるようにする
-    '基本マッチング': [
-        {
-            name: 'シンプルな親子',
-            pattern: 'A > B##x',
-            target: 'A > B C D',
-            description: 'Aノードの子供にBがあるものをマッチ'
-        },
-        {
-            name: '複数の子供',
-            pattern: 'A > B##b C##c',
-            target: 'A > B C D',
-            description: 'AノードがBとC両方の子供を持つものをマッチ'
-        },
-        {
-            name: 'ワイルドカード',
-            pattern: '.##root > A##a',
-            target: 'R > A B C',
-            description: '. は任意のノードタイプにマッチ'
-        }
-    ],
-    'キャプチャ': [
-        {
-            name: '単一キャプチャ',
-            pattern: 'A##root > B##child',
-            target: 'A > B C',
-            description: '特定のノードをキャプチャして取得'
-        },
-        {
-            name: '複数キャプチャ（同名）',
-            pattern: 'A##x > B##x > C##x',
-            target: 'A > B > C',
-            description: '同じ名前で複数キャプチャすると配列になる'
-        },
-        {
-            name: 'マルチキャプチャ (@)',
-            pattern: 'A##@a > B##@b',
-            target: 'R > (A > B) (A > B > (A > B))',
-            description: 'マッチする全てのAとBノードを見つける（TreeMatchFind使用）'
-        }
-    ],
-    'ORパターン': [
-        {
-            name: '基本OR',
-            pattern: '.##root > (A##a | B##b)',
-            target: 'R > A B C',
-            description: 'AまたはBの子供にマッチ'
-        },
-        {
-            name: '複雑なOR（子要素側）',
-            pattern: 'A > (C##c | D##d)',
-            target: 'R > (A > C) (A > D) (B > C)',
-            description: 'CまたはDを子に持つAノードをマッチ'
-        },
-        {
-            name: 'ORで深いパターン優先',
-            pattern: 'A > (B##short | (B > (X > P##deep))) W##w',
-            target: 'A > (B > (X > P)) W',
-            description: 'ORでより深いネスト構造が選ばれることを確認'
-        }
-    ],
-    '量指定子': [
-        {
-            name: '繰り返しマッチ (+)',
-            pattern: 'A > (.##@x)+ B##b',
-            target: 'A > X1 X2 X3 B',
-            description: '1個以上のノードに繰り返しマッチ'
-        },
-        {
-            name: '最短マッチ (+?)',
-            pattern: 'A > (.##@x)+? B##b',
-            target: 'A > X1 X2 X3 B',
-            description: '1個以上のノードに最短でマッチ（最小限だけ取る）'
-        }
-    ],
-    '高度なパターン': [
-        {
-            name: 'ネスト構造',
-            pattern: 'A > (B > C##c)',
-            target: 'A > (B > C) (B > D)',
-            description: 'ネストした親子関係にマッチ'
-        },
-        {
-            name: '深い階層探索',
-            pattern: 'A##@a',
-            target: 'R > (A > (B > A)) (C > A)',
-            description: 'ツリー内の全てのAノードを見つける（TreeMatchFind使用）'
-        },
-        {
-            name: '複雑なパターン',
-            pattern: 'Func##f > (Param##@p)+ Body##b',
-            target: 'Func > Param#x Param#y Param#z Body',
-            description: '複数のパラメータを持つ関数にマッチ'
-        }
-    ],
-    '+?の動作確認': [
-        {
-            name: '+?のバックトラック',
-            pattern: 'A > (B##@b)+? (C##@c)+? D##d',
-            target: 'A > B#1 B#2 C#1 C#2 D',
-            description: '+?は最短だがマッチする候補の中で最短。B+?がB#1だけだと後続がマッチしないのでB#1,B#2になる'
-        },
-        {
-            name: '+? vs + の比較（最短）',
-            pattern: 'A > (.##@x)+? B',
-            target: 'A > X Y Z B',
-            description: '+?は最短の1個だけマッチ（期待: x=[X]）'
-        },
-    ],
-    '深いネストのテスト': [
-        {
-            name: '20段ネスト',
-            pattern: 'A##@all_a',
-            target: 'A#1 > A#2 > A#3 > A#4 > A#5 > A#6 > A#7 > A#8 > A#9 > A#10 > A#11 > A#12 > A#13 > A#14 > A#15 > A#16 > A#17 > A#18 > A#19 > A#20',
-            description: '深くネストした全てのAノードを取得（TreeMatchFind使用、20個キャプチャ）'
-        },
-        {
-            name: '10段階層パターン',
-            pattern: 'A##a1 > A##a2 > A##a3 > A##a4 > A##a5',
-            target: 'A#1 > A#2 > A#3 > A#4 > A#5 > A#6',
-            description: '深い階層の親子関係を明示的にマッチ'
-        }
-    ],
-    'JavaScript AST': [
-        {
-            name: 'CallExpression基本',
-            pattern: 'CallExpression##call',
-            target: 'Program > FunctionDeclaration > (Identifier#test) (BlockStatement > ExpressionStatement > CallExpression > (MemberExpression > (Identifier#console) (Identifier#log)) (Literal#hello))',
-            description: 'console.log("hello") の CallExpression をマッチ（TreeMatchFind使用）'
-        },
-        {
-            name: 'MemberExpression',
-            pattern: 'MemberExpression##mem > Identifier#console',
-            target: 'Program > FunctionDeclaration > (Identifier#test) (BlockStatement > ExpressionStatement > CallExpression > (MemberExpression > (Identifier#console) (Identifier#log)) (Literal#hello))',
-            description: 'console.log の MemberExpression をマッチ'
-        },
-        {
-            name: 'ExpressionStatement',
-            pattern: 'ExpressionStatement##stmt',
-            target: 'Program > FunctionDeclaration > (Identifier#test) (BlockStatement > ExpressionStatement > CallExpression > (MemberExpression > (Identifier#console) (Identifier#log)) (Literal#hello))',
-            description: 'console.log文全体をマッチ（Transform機能で使用推奨）'
-        },
-        {
-            name: 'Literal値取得',
-            pattern: 'Literal##msg',
-            target: 'Program > FunctionDeclaration > (Identifier#test) (BlockStatement > ExpressionStatement > CallExpression > (MemberExpression > (Identifier#console) (Identifier#log)) (Literal#hello))',
-            description: '文字列リテラル "hello" をマッチ'
-        },
-        {
-            name: '深いネスト（BlockStatement内）',
-            pattern: 'BlockStatement##block > ExpressionStatement##stmt > CallExpression##call',
-            target: 'Program > FunctionDeclaration > (Identifier#test) (BlockStatement > ExpressionStatement > CallExpression > (MemberExpression > (Identifier#console) (Identifier#log)) (Literal#hello))',
-            description: '関数ブロック内の文と呼び出しを階層的にマッチ'
-        }
-    ]
-};
+function syncTargetHighlightScroll() {
+    if (!targetHighlightLayer) return;
+    targetHighlightLayer.scrollTop = targetInput.scrollTop;
+    targetHighlightLayer.scrollLeft = targetInput.scrollLeft;
+}
 
-// ランダムにサンプルを読み込む
-function loadSample() { // ランダムサンプルを選ぶために、全てのサンプルを 1 つの配列にまとめる
-    // カテゴリ分けされたサンプルを 1 つの配列に平坦化する
-    const allSamples = [];
-    Object.keys(SAMPLE_PATTERNS).forEach(category => {// カテゴリごとにサンプルを追加
-        SAMPLE_PATTERNS[category].forEach(sample => {
-            allSamples.push({ ...sample, category });
-        });
+function clearSourceMatchHighlights() {
+    if (!targetHighlightLayer) return;
+    targetHighlightLayer.textContent = currentTargetSource === 'code' ? targetInput.value : '';
+    syncTargetHighlightScroll();
+}
+
+function getNodeSourceRange(node) {
+    if (!node) return null;
+    const range = nodeSourceRangeMap.get(node);
+    if (!range || typeof range.start !== 'number' || typeof range.end !== 'number') return null;
+    if (range.end <= range.start) return null;
+    return range;
+}
+
+function getResultSourceRange(result) {
+    if (!result) return null;
+
+    try {
+        const rootCapture = result.GetRootCapture && result.GetRootCapture();
+        const rootRange = getNodeSourceRange(rootCapture?.Node?.());
+        if (rootRange) return rootRange;
+    } catch (_) {}
+
+    // root に範囲がない場合だけ、マッチに含まれるノード範囲の最小外接範囲を使う。
+    if (!Array.isArray(result._matchedNodes) || result._matchedNodes.length === 0) return null;
+
+    let start = Infinity;
+    let end = -Infinity;
+    result._matchedNodes.forEach(node => {
+        const range = getNodeSourceRange(node);
+        if (!range) return;
+        start = Math.min(start, range.start);
+        end = Math.max(end, range.end);
     });
 
-    const sample = allSamples[Math.floor(Math.random() * allSamples.length)];// ランダムにサンプルを選ぶ
-    patternInput.value = sample.pattern;// ターゲットもサンプルのものをセットする
-    targetInput.value = sample.target;// 
-
-    // サンプル読込時は事前読み込みツリーをクリアする
-    // 入力欄のサンプル文字列を正しく使うため
-    currentTargetTree = null;
-
-    executeMatch();// 読み込んだサンプルでマッチを実行する
+    return Number.isFinite(start) && Number.isFinite(end) && end > start
+        ? { start, end }
+        : null;
 }
 
-// サンプルメニューを組み立てる
-function buildSamplesMenu() {
-    samplesList.innerHTML = '';//
+function collectSourceMatchRanges(matchResults, matchMode) {
+    if (currentTargetSource !== 'code' || !matchResults) return [];
 
-    Object.keys(SAMPLE_PATTERNS).forEach(category => {// 各カテゴリごとにサンプルを表示するセクションを作る
-        const categoryDiv = document.createElement('div');
-        categoryDiv.className = 'sample-category';
+    const results = matchMode === 'TreeMatch'
+        ? [matchResults]
+        : (Array.isArray(matchResults) ? matchResults : []);
 
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'sample-category-header';
-        headerDiv.textContent = category;
-        categoryDiv.appendChild(headerDiv);// カテゴリの見出しを表示する
-
-        SAMPLE_PATTERNS[category].forEach(sample => {// 各サンプルについて、その表示を組み立てる
-            const itemDiv = document.createElement('div');// サンプルの項目全体を包むコンテナの HTML を組み立てる
-            itemDiv.className = 'sample-item';
-
-            const nameDiv = document.createElement('div');// サンプルの名前を表示する要素を作る
-            nameDiv.className = 'sample-name';
-            nameDiv.textContent = sample.name;
-
-            const patternDiv = document.createElement('div');// サンプルのパターンを表示する要素を作る
-            patternDiv.className = 'sample-pattern';
-            patternDiv.textContent = sample.pattern;
-
-            const descDiv = document.createElement('div');// サンプルの説明を表示する要素を作る
-            descDiv.className = 'sample-description';
-            descDiv.textContent = sample.description;
-
-            itemDiv.appendChild(nameDiv);// サンプルの名前、パターン、説明をサンプル項目のコンテナに追加する
-            itemDiv.appendChild(patternDiv);// サンプルのパターンをサンプル項目のコンテナに追加する
-            itemDiv.appendChild(descDiv);// サンプルの説明をサンプル項目のコンテナに追加する
-
-            itemDiv.addEventListener('click', () => {// サンプル項目がクリックされたときに、そのサンプルを読み込むためのイベントリスナーを追加する
-                loadSpecificSample(sample);// クリックされたサンプルを読み込むための関数を呼ぶ。引数にはこのサンプルの情報を渡す
-            });
-
-            categoryDiv.appendChild(itemDiv);// このサンプル項目をカテゴリのコンテナに追加する
-        });
-
-        samplesList.appendChild(categoryDiv);
-    });
+    return results
+        .map((result, index) => {
+            const range = getResultSourceRange(result);
+            if (!range) return null;
+            return {
+                start: range.start,
+                end: range.end,
+                colorIndex: index % MATCH_PALETTE.length,
+            };
+        })
+        .filter(Boolean);
 }
 
-// 指定したサンプルを読み込む
-function loadSpecificSample(sample) {// クリックされたサンプルのパターンとターゲットを入力欄にセットする関数。これでユーザーがサンプルを選んだときに、そのサンプルの内容が入力欄に反映されるようになる
-    patternInput.value = sample.pattern;// ターゲットもサンプルのものをセットする
-    targetInput.value = sample.target;
-
-    // サンプル読込時は事前読み込みツリーをクリアする
-    currentTargetTree = null;
-
-    closeSamplesMenu();// サンプルメニューを閉じる。これでサンプルを選んだ後はメニューが閉じて、結果に集中できるようになる
-    executeMatch();// 読み込んだサンプルでマッチを実行する。これでサンプルを選んだときに、そのサンプルのパターンとターゲットでマッチがすぐに行われるようになる
+function normalizeSourceHighlightRanges(ranges, sourceLength) {
+    let cursor = 0;
+    return ranges
+        .map(range => ({
+            start: Math.max(0, Math.min(sourceLength, range.start)),
+            end: Math.max(0, Math.min(sourceLength, range.end)),
+            colorIndex: range.colorIndex,
+        }))
+        .filter(range => range.end > range.start)
+        .sort((a, b) => (a.start - b.start) || (b.end - a.end))
+        .map(range => {
+            if (range.end <= cursor) return null;
+            const normalized = {
+                start: Math.max(range.start, cursor),
+                end: range.end,
+                colorIndex: range.colorIndex,
+            };
+            cursor = normalized.end;
+            return normalized;
+        })
+        .filter(Boolean);
 }
 
-// サンプルメニューの開閉を切り替える
-function toggleSamplesMenu(e) {
-    e.stopPropagation();
-    const isVisible = samplesMenu.style.display !== 'none';// サンプルメニューが現在表示されているかどうかをチェックする。display プロパティが 'none' でない場合は表示されていると判断する
+function renderSourceMatchHighlights(ranges) {
+    if (!targetHighlightLayer) return;
 
-    if (isVisible) {// サンプルメニューが表示されている場合は、
-        closeSamplesMenu();// サンプルメニューを閉じる。これでメニューが開いているときにボタンをクリックすると閉じるようになる
-    } else {
-        openSamplesMenu();// サンプルメニューが表示されていない場合は、サンプルメニューを開く。これでメニューが閉じているときにボタンをクリックすると開くようになる
+    if (currentTargetSource !== 'code') {
+        clearSourceMatchHighlights();
+        return;
     }
+
+    const source = targetInput.value;
+    const normalizedRanges = normalizeSourceHighlightRanges(ranges, source.length);
+    if (normalizedRanges.length === 0) {
+        targetHighlightLayer.textContent = source;
+        syncTargetHighlightScroll();
+        return;
+    }
+
+    let html = '';
+    let cursor = 0;
+    normalizedRanges.forEach(range => {
+        html += escapeHtml(source.slice(cursor, range.start));
+        html += `<span class="source-match-highlight source-match-${range.colorIndex + 1}">`;
+        html += escapeHtml(source.slice(range.start, range.end));
+        html += '</span>';
+        cursor = range.end;
+    });
+    html += escapeHtml(source.slice(cursor));
+
+    targetHighlightLayer.innerHTML = html;
+    syncTargetHighlightScroll();
 }
 
-// サンプルメニューを開く
-function openSamplesMenu() {
-    samplesMenu.style.display = 'block';// サンプルメニューを表示する。これでサンプルメニューが開くようになる
-    samplesMenuBtn.classList.add('active');// サンプルメニューボタンをアクティブ状態にする。これでメニューが開いているときにボタンが見た目でわかるようになる
-}
-
-// サンプルメニューを閉じる
-function closeSamplesMenu() {
-    samplesMenu.style.display = 'none';// サンプルメニューを非表示にする。これでサンプルメニューが閉じるようになる
-    samplesMenuBtn.classList.remove('active');// サンプルメニューボタンのアクティブ状態を解除する。これでメニューが閉じているときにボタンが見た目でわかるようになる
+function updateSourceMatchHighlights(matchResults, matchMode) {
+    renderSourceMatchHighlights(collectSourceMatchRanges(matchResults, matchMode));
 }
 
 // ===== パターン履歴管理 =====
@@ -1194,6 +1372,8 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
             rect.setAttribute('height', nodeHeight);
             rect.setAttribute('rx', 6);
             svgGroup.appendChild(rect);
+            attachNodePatternInsertHandler(rect, node);
+            attachNodeSourceSelectHandler(rect, node);
 
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             text.setAttribute('x', nx + nw / 2);
@@ -1472,6 +1652,8 @@ function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
         rect.setAttribute('height', NODE_H);
         rect.setAttribute('rx', 6);
         svgGroup.appendChild(rect);
+        attachNodePatternInsertHandler(rect, node);
+        attachNodeSourceSelectHandler(rect, node);
 
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         text.setAttribute('x', myCenter);
@@ -1536,12 +1718,16 @@ function getCurrentDrawFn() {
 function toggleLayoutStyle() {
     useCompactLayout = !useCompactLayout;
     const btn    = document.getElementById('layout-toggle-btn');
-    const dirBtn = document.getElementById('direction-toggle-btn');
-    btn.textContent = useCompactLayout ? 'Compact ✓' : 'Standard';
-    btn.classList.toggle('active', useCompactLayout);
+    const dirButtons = document.querySelectorAll('.orientation-btn');
+    if (btn) {
+        btn.textContent = useCompactLayout ? 'Compact ✓' : 'Standard';
+        btn.classList.toggle('active', useCompactLayout);
+    }
 
-    // Direction ボタンは Compact 時のみ有効
-    dirBtn.disabled = !useCompactLayout;
+    // 向き切替ボタンは Compact 時のみ有効
+    dirButtons.forEach(btn => {
+        btn.disabled = !useCompactLayout;
+    });
 
     if (currentTargetTree) {
         const pattern         = patternInput.value.trim();
@@ -1555,12 +1741,21 @@ function toggleLayoutStyle() {
     }
 }
 
-// 向き切替トグル関数（Compact 時のみ呼ばれる）
-function toggleTreeOrientation() {
-    treeOrientation = treeOrientation === 'vertical' ? 'horizontal' : 'vertical';
-    const btn = document.getElementById('direction-toggle-btn');
-    btn.textContent = treeOrientation === 'horizontal' ? 'Horizontal ✓' : 'Vertical';
-    btn.classList.toggle('active', treeOrientation === 'horizontal');
+function updateOrientationButtons() {
+    document.querySelectorAll('.orientation-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.orientation === treeOrientation);
+    });
+}
+
+// 向き切替。horizontal / vertical のどちらを選んでいるかをボタン色にも反映する。
+function setTreeOrientation(orientation) {
+    if (orientation !== 'horizontal' && orientation !== 'vertical') return;
+    if (treeOrientation === orientation) {
+        updateOrientationButtons();
+        return;
+    }
+    treeOrientation = orientation;
+    updateOrientationButtons();
 
     if (currentTargetTree) {
         const pattern         = patternInput.value.trim();
@@ -1574,24 +1769,52 @@ function toggleTreeOrientation() {
     }
 }
 
-// Target Mode ボタンクリック処理（Affordance UI のみ。内部マッチ処理は変更しない）
+// Target Mode ボタンクリック処理
+// TreeConstruct 直接入力と JavaScript コード入力を切り替える。
 const TARGET_SOURCE_HELP = {
     treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
-    code:          'ソースコードを入力するモードです。現在はUI試作中です。',
+    code:          'JavaScriptコードを入力するとASTへ変換してターゲット木として表示します。',
     json:          'JSON AST または汎用JSONを入力するモードです。現在はUI試作中です。',
 };
 
 function handleCodeLangSelect(e) {
     const label  = e.currentTarget.dataset.label;
+    currentTargetSource = 'code';
+    currentTargetCodeLang = label.toLowerCase();
+    currentTargetTree = null;
+    nodeSourceRangeMap = new WeakMap();
+    clearSourceMatchHighlights();
+
     const codeBtn = document.getElementById('target-code-mode-btn');
     if (codeBtn) codeBtn.textContent = `${label} ▼`;
     const menu = document.getElementById('target-code-lang-menu');
     if (menu) menu.style.display = 'none';
+
+    document.querySelectorAll('.target-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.source === 'code');
+    });
+
+    const helpEl = document.getElementById('target-source-help');
+    if (helpEl) {
+        helpEl.textContent = label === 'JavaScript'
+            ? TARGET_SOURCE_HELP.code
+            : `${label} code target mode is not implemented yet.`;
+    }
+
+    executeMatch();
 }
 
 function handleTargetModeClick(e) {
     const clicked = e.currentTarget;
     const source  = clicked.dataset.source;
+    currentTargetSource = source;
+    currentTargetTree = null;
+    nodeSourceRangeMap = new WeakMap();
+    clearSourceMatchHighlights();
+
+    if (source === 'code' && !currentTargetCodeLang) {
+        currentTargetCodeLang = 'javascript';
+    }
 
     document.querySelectorAll('.target-mode-btn').forEach(btn => {
         btn.classList.toggle('active', btn === clicked);
@@ -1737,6 +1960,8 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
             rect.setAttribute('height', NODE_H);
             rect.setAttribute('rx', 6);
             svgGroup.appendChild(rect);
+            attachNodePatternInsertHandler(rect, node);
+            attachNodeSourceSelectHandler(rect, node);
 
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             text.setAttribute('x', x + w / 2);
@@ -1781,7 +2006,10 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
         treeSvg.removeAttribute('viewBox');
 
         const treeVizArea = document.querySelector('.tree-viz-area');
-        if (treeVizArea) { treeVizArea.scrollLeft = 0; treeVizArea.scrollTop = 0; }
+        if (treeVizArea && !pendingTreeViewScrollRestore) {
+            treeVizArea.scrollLeft = 0;
+            treeVizArea.scrollTop = 0;
+        }
 
         if (matchResults) {
             const colorResult = applyMatchColors(matchResults, matchMode, patternStr || '');
@@ -2119,6 +2347,21 @@ function setupCaptureHoverEvents(captureMeta) {
     });
 }
 
+function scrollTreeViewToNodeId(nodeId) {
+    const meta = nodeIdToRenderMeta.get(nodeId);
+    const treeVizArea = document.querySelector('.tree-viz-area');
+    if (!meta || !treeVizArea) return;
+
+    const targetLeft = meta.nodeX + meta.nodeWidth / 2 - treeVizArea.clientWidth / 2;
+    const targetTop = meta.nodeY + meta.nodeHeight / 2 - treeVizArea.clientHeight / 2;
+    treeVizArea.scrollTo({
+        left: Math.max(0, targetLeft),
+        top: Math.max(0, targetTop),
+        behavior: 'smooth',
+    });
+    flashNodeRect(meta.rectEl);
+}
+
 // ===== SVG 凡例 =====
 
 // SVG の上に「match 色一覧」「Capture 色順一覧」を動的に表示する
@@ -2165,6 +2408,11 @@ function buildSVGLegend(matchMeta, captureMeta) {
                 });
             });
             chip.addEventListener('mouseleave', scheduleSVGHoverClear);
+            chip.addEventListener('click', () => {
+                if (nodeIds.length > 0) {
+                    scrollTreeViewToNodeId(nodeIds[0]);
+                }
+            });
             list.appendChild(chip);
         });
 
@@ -2192,6 +2440,12 @@ function buildSVGLegend(matchMeta, captureMeta) {
                 applyCaptureHover(captureName, captureMeta);
             });
             chip.addEventListener('mouseleave', scheduleSVGHoverClear);
+            chip.addEventListener('click', () => {
+                const meta = captureMeta.get(captureName);
+                if (meta && meta.nodeIds.length > 0) {
+                    scrollTreeViewToNodeId(meta.nodeIds[0]);
+                }
+            });
             list.appendChild(chip);
         });
 
@@ -2309,7 +2563,7 @@ function executeMatchWithTree() {
     console.log('🎯 executeMatchWithTree called');
 
     const pattern   = patternInput.value.trim();
-    const targetStr = targetInput.value.trim();
+    const targetStr = getCurrentTargetInputText();
 
     console.log('  Pattern:', pattern);
     console.log('  Target:', targetStr);
@@ -2320,13 +2574,23 @@ function executeMatchWithTree() {
     // drawSVGTree() 内の nodeObjectToNodeId が同じノード参照を持つことが保証される。
     // （別々に TreeConstruct() すると異なるオブジェクトになり、
     //   Capture(name).Node() の参照が nodeObjectToNodeId に見つからなくなる）
+    let prebuildError = null;
     if (targetStr && !currentTargetTree) {
         try {
-            currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
+            currentTargetTree = getTargetTreeFromInput(targetStr);
             console.log('🌳 Pre-built currentTargetTree for reference consistency');
-        } catch (_) {
-            // 構築失敗は originalExecuteMatch() のエラーハンドリングに委ねる
+        } catch (error) {
+            prebuildError = error;
+            // パターンありの場合は originalExecuteMatch() のエラーハンドリングに委ねる
         }
+    }
+
+    if (prebuildError && !pattern) {
+        displayError(prebuildError);
+        getCurrentDrawFn()(null);
+        clearSourceMatchHighlights();
+        document.getElementById('zoom-controls').style.display = 'none';
+        return;
     }
 
     originalExecuteMatch();
@@ -2343,6 +2607,7 @@ function executeMatchWithTree() {
                 ? (window.lastMatchedResult  || null)
                 : (window.lastMatchedResults || null);
             getCurrentDrawFn()(targetTree, svgMatchResults, svgMode, pattern);
+            updateSourceMatchHighlights(svgMatchResults, svgMode);
 
             // 新しいツリーを描いたらズームを初期値へ戻す
             currentZoom = 1.0;
@@ -2371,10 +2636,12 @@ function executeMatchWithTree() {
             }
         } catch (error) {
             getCurrentDrawFn()(null);
+            clearSourceMatchHighlights();
             document.getElementById('zoom-controls').style.display = 'none';
         }
     } else {
         getCurrentDrawFn()(null);
+        clearSourceMatchHighlights();
         document.getElementById('zoom-controls').style.display = 'none';
     }
 }
@@ -3421,7 +3688,11 @@ function convertASTToTreeMatchLib(astNode) {// acorn で得られた AST ノー�
     // TreeMatchLib 用の属性形式でノードを作る
     // Tree1 では __A が Attr0（型）、__B が Attr1（値）に対応する
     const attr = { __A: nodeType, __B: nodeValue };// これでノードの種類と表示値を属性として持たせることができるようになる。例えば、Identifier ノードなら __A: 'Identifier', __B: 'x' のようになる
-    return new Tree1.NodeClass(attr, children);// これで AST ノードを TreeMatchLib のノードに変換して返すことができるようになる
+    const treeNode = new Tree1.NodeClass(attr, children);// これで AST ノードを TreeMatchLib のノードに変換して返すことができるようになる
+    if (typeof astNode.start === 'number' && typeof astNode.end === 'number') {
+        nodeSourceRangeMap.set(treeNode, { start: astNode.start, end: astNode.end });
+    }
+    return treeNode;
 }
 
 // TreeMatchLib のツリーをパターン文字列に変換する関数。これで変換したツリーを人間が読める形で表示できるようになる

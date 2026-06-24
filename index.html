@@ -86,35 +86,11 @@
                             <button class="target-mode-btn" data-source="json">JSON</button>
                         </div>
                     </div>
-                    <div class="sample-controls">
-                        <!-- サンプル読み込みボタン：デフォルトのサンプルを素早くロードする -->
-                        <button id="sample-btn" class="btn-sample">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                            </svg>
-                            Load Sample
-                        </button>
-                        <!-- サンプルメニューボタン：カテゴリ別のサンプル一覧を表示する -->
-                        <button id="samples-menu-btn" class="btn-icon" title="Browse Samples">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <rect x="3" y="3" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                                <rect x="9" y="3" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                                <rect x="3" y="9" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                                <rect x="9" y="9" width="4" height="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                            </svg>
-                        </button>
-                    </div>
                 </div>
                 <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
-                <textarea id="target-input" placeholder="A > B C D" rows="8"></textarea>
-
-                <!-- サンプルメニュー：カテゴリ別のサンプルパターン一覧
-                     デフォルトは非表示。サンプルメニューボタンを押すと表示される -->
-                <div id="samples-menu" class="samples-menu" style="display: none;">
-                    <div class="samples-menu-header">
-                        <span>Sample Patterns</span>
-                    </div>
-                    <div id="samples-list" class="samples-list"></div>
+                <div class="target-editor-wrap">
+                    <pre id="target-highlight-layer" aria-hidden="true"></pre>
+                    <textarea id="target-input" placeholder="A > B C D" rows="8"></textarea>
                 </div>
             </section>
         </div>
@@ -123,23 +99,34 @@
         <div class="right-column">
             <section class="result-section">  <!--  結果表示セクション。マッチ結果のテキスト表示、ツリーの視覚化、デバッグ情報などをタブで切り替えて表示するエリア
                  タブ切替と内容表示はJavaScriptで制御する -->
-                <div class="section-header">
-                    <label>OUTPUT</label>
-                    <div class="header-right">
-                        <!-- 結果をJSON形式でコピーするボタン -->
-                        <button id="copy-result-btn" class="btn-icon" title="Copy Result (JSON)">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                <rect x="5" y="5" width="9" height="9" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                                <path d="M3 11V3a1 1 0 0 1 1-1h8" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                            </svg>
-                        </button>
-                        <!-- タブ切替ボタン：Result / Tree Visualization / Debug / Code Import / Transform -->
+                <div class="section-header output-header">
+                    <div class="output-header-left">
+                        <label>OUTPUT</label>
+                        <!-- タブ切替ボタン：Result / Tree View -->
                         <div class="tab-buttons">
                             <button class="tab-btn active" data-tab="result">Result</button>
-                            <button class="tab-btn" data-tab="tree-viz">Tree Visualization</button>
-                            <button class="tab-btn" data-tab="debug">Debug</button>
-                            <button class="tab-btn" data-tab="code-import">Code Import</button>
-                            <button class="tab-btn" data-tab="transform">Transform</button>
+                            <button class="tab-btn" data-tab="tree-viz">Tree View</button>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <!-- Tree View のズーム・全画面操作。Tree Viewが表示されるまでは非表示にする -->
+                        <div id="zoom-controls" class="zoom-controls" style="display: none;">
+                            <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <span id="zoom-level" class="zoom-level">100%</span>
+                            <button id="zoom-out-btn" class="zoom-btn" title="Zoom Out">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button id="fullscreen-btn" class="zoom-btn" title="Toggle Fullscreen">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -159,16 +146,29 @@
                     </div>
                 </div>
 
-                <!-- Tree Visualizationタブ：SVGでツリー構造を視覚的に描画する -->
+                <!-- Tree Viewタブ：SVGでツリー構造を視覚的に描画する -->
                 <div class="tab-content" id="tab-tree-viz">
                     <div class="tree-viz-area">
                         <!-- ツールバー：表示モード切替（SVG の上に通常フローで配置） -->
                         <div id="tree-viz-toolbar" class="tree-viz-toolbar">
-                            <span class="toolbar-label">Layout</span>
-                            <button id="layout-toggle-btn" class="layout-toggle-btn">Standard</button>
-                            <span class="toolbar-sep"></span>
-                            <span class="toolbar-label">Direction</span>
-                            <button id="direction-toggle-btn" class="layout-toggle-btn" disabled>Vertical</button>
+                            <button class="layout-toggle-btn orientation-btn active" data-orientation="horizontal" type="button" title="Horizontal Tree View">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <rect x="1.5" y="5.5" width="4" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10.5" y="2" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10.5" y="10" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <path d="M5.5 8h3M8.5 4v8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                                </svg>
+                                <span>横</span>
+                            </button>
+                            <button class="layout-toggle-btn orientation-btn" data-orientation="vertical" type="button" title="Vertical Tree View">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <rect x="5.5" y="1.5" width="5" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="2" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <path d="M8 5.5v3M4 8.5h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                                </svg>
+                                <span>縦</span>
+                            </button>
                         </div>
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -181,31 +181,6 @@
                         <svg id="tree-svg" width="100%" height="500" xmlns="http://www.w3.org/2000/svg">
                             <g id="tree-group" transform="scale(1,1)"></g>
                         </svg>
-                        <!-- ズームコントロール：拡大・縮小・リセットボタン（右下に absolute 配置）
-                             ツリーが表示されるまでは非表示にしておく -->
-                        <div id="zoom-controls" class="zoom-controls" style="display: none;">
-                            <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                            </button>
-                            <span id="zoom-level" class="zoom-level">100%</span>
-                            <button id="zoom-out-btn" class="zoom-btn" title="Zoom Out">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                            </button>
-                            <button id="zoom-reset-btn" class="zoom-btn" title="Reset Zoom">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
-                                </svg>
-                            </button>
-                            <button id="fullscreen-btn" class="zoom-btn" title="Toggle Fullscreen">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
                     </div>
                 </div>
 

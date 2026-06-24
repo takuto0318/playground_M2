@@ -31,37 +31,39 @@ body {
 /* ヘッダー */
 header {
     background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-    padding: 1.5rem 2rem;
+    padding: 1rem 2rem 1.15rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .header-content {
-    max-width: 1400px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
 }
 
 header h1 {
-    font-size: 1.75rem;
-    font-weight: 600;
+    font-size: 2.35rem;
+    font-weight: 700;
     margin-bottom: 0.25rem;
     color: #ffffff;
+    line-height: 1.1;
 }
 
 .subtitle {
-    font-size: 0.875rem;
+    font-size: 1rem;
     opacity: 0.9;
     color: #ffffff;
 }
 
 /* メインコンテナ - 2カラムレイアウト */
 .container {
-    max-width: 1400px;
+    max-width: 1800px;
     margin: 0 auto;
-    padding: 2rem;
+    padding: 0.25rem 2rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(360px, 0.75fr) minmax(0, 1.45fr);
     gap: 2rem;
-    min-height: calc(100vh - 120px);
+    height: calc(100vh - 20px);
+    min-height: calc(100vh - 20px);
 }
 
 .left-column,
@@ -70,6 +72,7 @@ header h1 {
     flex-direction: column;
     gap: 1.5rem;
     min-width: 0;
+    min-height: 0;
 }
 
 /* 入力セクション */
@@ -110,6 +113,13 @@ header h1 {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+}
+
+.output-header-left {
+    display: flex;
+    align-items: center;
+    gap: 1.35rem;
+    min-width: 0;
 }
 
 /* マッチモードの切り替え（TreeMatch / TreeMatchFind） */
@@ -312,92 +322,6 @@ header h1 {
     position: relative;
 }
 
-.sample-controls {
-    display: flex;
-    gap: 0.5rem;
-}
-
-/* サンプルメニュー（カテゴリ別サンプル一覧） */
-.samples-menu {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    right: 0;
-    left: 0;
-    max-width: 100%;
-    max-height: 400px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    overflow: hidden;
-}
-
-.samples-menu-header {
-    padding: 0.75rem 1rem;
-    background: var(--bg-elevated);
-    border-bottom: 1px solid var(--border-color);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--label-color);
-}
-
-.samples-list {
-    max-height: 350px;
-    overflow-y: auto;
-}
-
-.sample-category {
-    border-bottom: 1px solid var(--border-color);
-}
-
-.sample-category:last-child {
-    border-bottom: none;
-}
-
-.sample-category-header {
-    padding: 0.5rem 1rem;
-    background: var(--bg-elevated);
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    letter-spacing: 0.05em;
-}
-
-.sample-item {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border-color);
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.sample-item:last-child {
-    border-bottom: none;
-}
-
-.sample-item:hover {
-    background: var(--bg-elevated);
-}
-
-.sample-name {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    margin-bottom: 0.25rem;
-}
-
-.sample-pattern {
-    font-family: 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
-    font-size: 0.75rem;
-    color: var(--primary-color);
-    margin-bottom: 0.25rem;
-}
-
-.sample-description {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-}
-
 /* コピーボタン付き入力フィールド（右上にコピーボタンを重ねて配置） */
 .input-with-copy {
     position: relative;
@@ -458,6 +382,55 @@ textarea::placeholder {
 .target-section textarea {
     flex: 1;
 }
+
+.target-editor-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+#target-highlight-layer,
+.target-editor-wrap #target-input {
+    width: 100%;
+    min-height: 100%;
+    padding: 1rem;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    tab-size: 4;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+#target-highlight-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    margin: 0;
+    overflow: hidden;
+    pointer-events: none;
+    color: transparent;
+    background: var(--code-bg);
+    border: none;
+}
+
+.target-editor-wrap #target-input {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    background: transparent;
+}
+
+.source-match-highlight {
+    color: transparent;
+    border-radius: 2px;
+}
+
+.source-match-1 { background: rgba(223, 247, 229, 0.9); }
+.source-match-2 { background: rgba(255, 244, 229, 0.95); }
+.source-match-3 { background: rgba(243, 217, 250, 0.9); }
+.source-match-4 { background: rgba(208, 235, 255, 0.9); }
 
 /* Target Source セレクタ（Affordance UI） */
 .target-header-left {
@@ -585,9 +558,10 @@ textarea::placeholder {
     flex-direction: column;
     height: 100%;
     min-width: 0;
+    min-height: 0;
 }
 
-/* タブボタン（Result / Tree Visualization / Debug など） */
+/* タブボタン（Result / Tree View） */
 .tab-buttons {
     display: flex;
     gap: 0.5rem;
@@ -622,6 +596,7 @@ textarea::placeholder {
     flex: 1;
     overflow: hidden;
     min-width: 0;
+    min-height: 0;
 }
 
 .tab-content.active {
@@ -633,6 +608,7 @@ textarea::placeholder {
     padding: 1rem;
     overflow-y: auto;
     flex: 1;
+    min-height: 0;
     font-family: 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
     font-size: 0.875rem;
     line-height: 1.6;
@@ -869,13 +845,13 @@ textarea::placeholder {
     background: #475569;
 }
 
-/* SVGツリー可視化エリア（Tree Visualizationタブ内） */
+/* SVGツリー可視化エリア（Tree Viewタブ内） */
 .tree-viz-area {
     flex: 1;
     overflow: auto;
     padding: 1rem;
     position: relative;
-    min-height: 300px;
+    min-height: 0;
     max-width: 100%;
 }
 
@@ -976,6 +952,22 @@ textarea::placeholder {
     border-color: var(--primary-color);
 }
 
+.orientation-btn {
+    min-width: 72px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+}
+
+.orientation-btn svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
 .toolbar-sep {
     width: 1px;
     height: 14px;
@@ -992,9 +984,7 @@ textarea::placeholder {
 
 /* ズームコントロール（ツリー表示の拡大縮小ボタン群） */
 .zoom-controls {
-    position: absolute;
-    bottom: 1rem;
-    right: 1rem;
+    position: static;
     display: flex;
     align-items: center;
     gap: 0.25rem;
@@ -1004,28 +994,6 @@ textarea::placeholder {
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     z-index: 10;
-}
-
-/* Zoom controls in fullscreen mode - fixed to screen */
-.tree-viz-area:fullscreen .zoom-controls {
-    position: fixed;
-    bottom: 1rem;
-    right: 1rem;
-    z-index: 1000;
-}
-
-.tree-viz-area:-webkit-full-screen .zoom-controls {
-    position: fixed;
-    bottom: 1rem;
-    right: 1rem;
-    z-index: 1000;
-}
-
-.tree-viz-area:-ms-fullscreen .zoom-controls {
-    position: fixed;
-    bottom: 1rem;
-    right: 1rem;
-    z-index: 1000;
 }
 
 .zoom-btn {
@@ -1097,6 +1065,41 @@ textarea::placeholder {
     stroke: var(--primary-color);
     stroke-width: 2;
     rx: 4;
+}
+
+#tree-svg rect.temporary-node-highlight {
+    fill: #fef08a !important;
+    stroke: #eab308 !important;
+    stroke-width: 4 !important;
+}
+
+.node-context-menu {
+    position: fixed;
+    z-index: 3000;
+    min-width: 220px;
+    padding: 0.35rem;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.node-context-menu button {
+    width: 100%;
+    display: block;
+    padding: 0.55rem 0.7rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.node-context-menu button:hover {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--primary-color);
 }
 
 /* デバッグエリア（Debugタブ内のレイアウト） */
