@@ -2364,7 +2364,7 @@ function scrollTreeViewToNodeId(nodeId) {
 
 // ===== SVG 凡例 =====
 
-// SVG の上に「match 色一覧」「Capture 色順一覧」を動的に表示する
+// SVG の上に match/capture の凡例を動的に表示する
 // 各項目にホバーすると対応する match/capture のノードが強調される
 function buildSVGLegend(matchMeta, captureMeta) {
     let legendEl = document.getElementById('svg-match-legend');
@@ -2376,11 +2376,11 @@ function buildSVGLegend(matchMeta, captureMeta) {
     }
     legendEl.innerHTML = '';
 
-    // match 色一覧
+    // Match list
     if (matchMeta.size > 0) {
         const box = document.createElement('div');
         box.className = 'svg-legend-box';
-        box.innerHTML = '<div class="svg-legend-title">match 色一覧</div>';
+        box.innerHTML = '<div class="svg-legend-title">Match list</div>';
         const list = document.createElement('div');
         list.className = 'svg-legend-list';
 
@@ -2420,11 +2420,11 @@ function buildSVGLegend(matchMeta, captureMeta) {
         legendEl.appendChild(box);
     }
 
-    // Capture 色順一覧
+    // Capture list
     if (captureMeta.size > 0) {
         const box = document.createElement('div');
         box.className = 'svg-legend-box';
-        box.innerHTML = '<div class="svg-legend-title">Capture 色順一覧</div>';
+        box.innerHTML = '<div class="svg-legend-title">Capture list</div>';
         const list = document.createElement('div');
         list.className = 'svg-legend-list';
 
