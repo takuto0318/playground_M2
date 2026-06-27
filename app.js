@@ -18,6 +18,10 @@ const historyList = document.getElementById('history-list');// 履歴アイテ�
 const clearHistoryBtn = document.getElementById('clear-history-btn');// 履歴を全て消すボタン
 const copyPatternBtn = document.getElementById('copy-pattern-btn');// 現在のパターンをクリップボードにコピーするボタン
 const copyResultBtn = document.getElementById('copy-result-btn');// 最後のマッチ結果をクリップボードにコピーするボタン
+const downloadLogBtn = document.getElementById('download-log-btn');// 実験ログをJSONとしてダウンロードするボタン
+
+const PLAYGROUND_RUN_LOG_STORAGE_KEY = 'treematch_playground_log_v1';
+let playgroundRunLog = loadPlaygroundRunLog();
 
 // ユーザーが入力を終えるのを待ってからマッチ処理を実行するためのタイマー ID を保存しておく変数
 let debounceTimer = null;// タイマー ID を保存しておき、次の入力があったら前のタイマーをクリアする形で実装する
@@ -103,6 +107,9 @@ function init() {
     if (copyResultBtn) {
         copyResultBtn.addEventListener('click', copyResult);
     }
+    if (downloadLogBtn) {
+        downloadLogBtn.addEventListener('click', downloadPlaygroundRunLog);
+    }
 
     // ツリー表示のズーム操作
     document.getElementById('zoom-in-btn').addEventListener('click', zoomIn);
@@ -177,8 +184,19 @@ function handleTabSwitch(e) {
 function handleInputChange() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-        executeMatch();
+        executeMatchWithTree();
     }, 300);
+}
+
+function normalizePatternInput(pattern) {
+    if (!pattern) return pattern;
+
+    // AST import 用の疑似ノード名は利用者に見せず、任意ノード + field値として扱う。
+    // __ListField#body / "__ListField"#body はどちらも .#body として実行する。
+    return pattern.replace(
+        /(^|[\s>(|~])(?:"(?:__Field|__ListField|__Null)"|__(?:Field|ListField|Null))(?=($|[\s#)>+*|]))/g,
+        (_, prefix) => `${prefix}.`
+    );
 }
 
 // 選択中のマッチモードを取得する
@@ -193,6 +211,82 @@ function getMatchMode() {// どのマッチモードのラジオボタンが選�
 
 function getCurrentTargetInputText() {
     return currentTargetSource === 'code' ? targetInput.value : targetInput.value.trim();
+}
+
+function getErrorMessage(error) {
+    return error && error.message ? error.message : String(error);
+}
+
+function hashString(text) {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+        hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        hash |= 0;
+    }
+    return String(hash);
+}
+
+function loadPlaygroundRunLog() {
+    try {
+        const saved = localStorage.getItem(PLAYGROUND_RUN_LOG_STORAGE_KEY);
+        return saved ? JSON.parse(saved) : [];
+    } catch (error) {
+        console.warn('Failed to load playground run log:', error);
+        return [];
+    }
+}
+
+function savePlaygroundRunLog() {
+    try {
+        localStorage.setItem(PLAYGROUND_RUN_LOG_STORAGE_KEY, JSON.stringify(playgroundRunLog));
+    } catch (error) {
+        console.warn('Failed to save playground run log:', error);
+    }
+}
+
+function appendPlaygroundRunLog(status, executablePattern, details = {}) {
+    const targetText = getCurrentTargetInputText();
+    const rawPattern = patternInput.value.trim();
+    const entry = {
+        runIndex: playgroundRunLog.length + 1,
+        timestamp: new Date().toISOString(),
+        status,
+        mode: details.mode || getMatchMode(),
+        targetSource: currentTargetSource,
+        targetCodeLang: currentTargetSource === 'code' ? currentTargetCodeLang : null,
+        pattern: rawPattern,
+        executablePattern: executablePattern || normalizePatternInput(rawPattern),
+        targetLength: targetText.length,
+        targetHash: hashString(targetText),
+        targetPreview: targetText.slice(0, 500),
+        matchCount: typeof details.matchCount === 'number' ? details.matchCount : null,
+        errorMessage: details.errorMessage || null
+    };
+
+    playgroundRunLog.push(entry);
+    savePlaygroundRunLog();
+    return entry;
+}
+
+function downloadPlaygroundRunLog() {
+    const payload = {
+        tool: 'TreeMatchLib Playground',
+        exportedAt: new Date().toISOString(),
+        entryCount: playgroundRunLog.length,
+        entries: playgroundRunLog
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `treematch-playground-log-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function parseJavaScriptCodeToTree(code) {
@@ -226,7 +320,9 @@ function getTargetTreeFromInput(targetStr) {
     }
 
     if (currentTargetSource === 'json') {
-        throw new Error('JSON target mode is not implemented yet.');
+        const jsonAst = JSON.parse(targetStr);
+        currentTargetTree = importJsonAstToTree(jsonAst, Tree1, AST_FIELD_IMPORT_OPTIONS);
+        return currentTargetTree;
     }
 
     console.log('📝 Parsing target from TreeConstruct string');
@@ -237,7 +333,7 @@ function getTargetTreeFromInput(targetStr) {
 // パターンマッチングを実行する
 // この関数は「入力の取得」「ツリー構築」「履歴保存」「実行関数の振り分け」
 function executeMatch() {
-    const pattern = patternInput.value.trim();// パターン入力から余分な空白を取り除いて読み取る
+    const pattern = normalizePatternInput(patternInput.value.trim());// パターン入力から余分な空白を取り除いて読み取る
     const targetStr = getCurrentTargetInputText();// Code モードでは start/end がずれないよう原文を使う
 
     if (!targetStr) {// ターゲットが空なら結果表示を初期状態に戻す
@@ -277,6 +373,10 @@ function executeMatch() {
         }
 
     } catch (error) {// ツリー構築やマッチ処理でエラーが出た場合は、結果をクリアしてエラー表示をする
+        appendPlaygroundRunLog('error', pattern, {
+            mode: getMatchMode(),
+            errorMessage: getErrorMessage(error)
+        });
         displayError(error);
     }
 }
@@ -357,12 +457,24 @@ function executeTreeMatch(targetTree, pattern) {
 
             lastMatchResult = resultToJSON(result);
             displayMatchSuccess(result);
+            appendPlaygroundRunLog('success', pattern, {
+                mode: 'TreeMatch',
+                matchCount: 1
+            });
         } else {
             lastMatchResult = null;
             displayMatchFail();
+            appendPlaygroundRunLog('no-match', pattern, {
+                mode: 'TreeMatch',
+                matchCount: 0
+            });
         }
     } catch (error) {
         lastMatchResult = null;
+        appendPlaygroundRunLog('error', pattern, {
+            mode: 'TreeMatch',
+            errorMessage: getErrorMessage(error)
+        });
         displayError(error);
     }
 }
@@ -379,12 +491,24 @@ function executeTreeMatchFind(targetTree, pattern) {
                 results.map(r => r._matchedNodes.map(n => n.Attr0())));
             lastMatchResult = results.map(r => resultToJSON(r));// 結果を JSON 化して保存する。これも「結果をコピー」ボタンで出力できるようにするため
             displayMatchFindSuccess(results);
+            appendPlaygroundRunLog('success', pattern, {
+                mode: 'TreeMatchFind',
+                matchCount: results.length
+            });
         } else {
             lastMatchResult = null;
             displayMatchFail();
+            appendPlaygroundRunLog('no-match', pattern, {
+                mode: 'TreeMatchFind',
+                matchCount: 0
+            });
         }
     } catch (error) {
         lastMatchResult = null;
+        appendPlaygroundRunLog('error', pattern, {
+            mode: 'TreeMatchFind',
+            errorMessage: getErrorMessage(error)
+        });
         displayError(error);
     }
 }
@@ -426,6 +550,7 @@ function displayMatchFindSuccess(results) {
 
 function displayCaptures(result) {// キャプチャされた内容を見やすく表示するための関数。単一キャプチャとマルチキャプチャの両方を処理する
     let html = '<div class="capture-list">';// キャプチャ内容をまとめるコンテナの HTML を組み立てる
+    html += buildMatchRootSummary(result);
 
     // 単一キャプチャを表示する
     const captureNames = result.GetCaptureNames();// マッチ結果から単一キャプチャの名前のリストを取得する。これをループして各キャプチャの内容を表示する
@@ -439,7 +564,7 @@ function displayCaptures(result) {// キャプチャされた内容を見やす�
 
             html += `<div class="capture-item-wrapper">`;// キャプチャ項目全体を包むコンテナの HTML を組み立てる
             html += `<div class="capture-item" onclick="toggleCaptureDetails('${captureId}')">`;// キャプチャの見出し部分の HTML を組み立てる。クリックされたら toggleCaptureDetails 関数を呼ぶ。引数にはこのキャプチャの ID を渡す
-            html += `<span class="capture-name">${name}:</span> ${nodeStr}`;// キャプチャの名前とノードの文字列を表示する
+            html += `<span class="capture-name">${name}:</span> ${nodeStr}${buildInlineNodeLocation(node)}`;// キャプチャの名前とノードの文字列を表示する
             html += `<span class="capture-expand">▼</span>`;// キャプチャの詳細を開くためのアイコンを表示する
             html += `</div>`;
             html += `<div id="${captureId}" class="capture-details" style="display: none;">`;// キャプチャの詳細部分の HTML を組み立てる。初期状態では非表示にしておく
@@ -467,7 +592,7 @@ function displayCaptures(result) {// キャプチャされた内容を見やす�
             captures.forEach((capture, index) => {// 各キャプチャオブジェクトについて、その内容を表示するためのループ。index は 0 から始まるキャプチャの番号
                 const node = capture.Node();// キャプチャオブジェクトからノードを取得する。ノードには Attr0 や Attr1、子ノードなどの情報がある想定
                 html += `<div class="multi-capture-item">`;
-                html += `<div class="multi-capture-index">[${index}] ${formatNode(node)}</div>`;
+                html += `<div class="multi-capture-index">[${index}] ${formatNode(node)}${buildInlineNodeLocation(node)}</div>`;
                 html += buildCaptureDetails(node);//キャプチャされたノードの詳細表示を組み立てる。これには Attr1 や子ノード構造など、一覧だけでは分からない情報も含まれる
                 html += `</div>`;
             });
@@ -477,6 +602,14 @@ function displayCaptures(result) {// キャプチャされた内容を見やす�
         });
     }
 
+    if (captureNames.length === 0 && multiCaptureNames.length === 0) {
+        html += `<div class="capture-item-wrapper">`;
+        html += `<div class="capture-item">`;
+        html += `<span class="capture-name">(no named captures)</span>`;
+        html += `</div>`;
+        html += `</div>`;
+    }
+
     html += '</div>';
     return html;
 }
@@ -484,6 +617,13 @@ function displayCaptures(result) {// キャプチャされた内容を見やす�
 // キャプチャされたノードの詳細表示を組み立てる
 function buildCaptureDetails(node) {// キャプチャされたノードの属性や子ノード構造など、一覧だけでは分からない情報を表示するための関数
     let html = '<div class="capture-detail-content">';// キャプチャされたノードの詳細をまとめるコンテナの HTML を組み立てる
+    if (!node) {
+        html += '<div class="detail-row"><span class="detail-label">Node:</span> <span class="detail-value">(null)</span></div>';
+        html += '</div>';
+        return html;
+    }
+
+    html += buildNodeLocationDetails(node);
 
     // ノード属性
     html += '<div class="detail-row">';// ノードの属性を表示する行の HTML を組み立てる
@@ -602,6 +742,99 @@ function formatNode(node) {// ノードオブジェクトを受け取り、そ�
     return str;
 }
 
+function getResultRootNode(result) {
+    try {
+        const rootCapture = result?.GetRootCapture?.();
+        return rootCapture?.Node?.() || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getSourceTextForLocation() {
+    return currentTargetSource === 'code' ? targetInput.value : '';
+}
+
+function offsetToLineColumn(source, offset) {
+    const safeOffset = Math.max(0, Math.min(source.length, offset));
+    const before = source.slice(0, safeOffset);
+    const parts = before.split('\n');
+    return {
+        line: parts.length,
+        column: parts[parts.length - 1].length + 1,
+    };
+}
+
+function getNodeLocationInfo(node) {
+    const range = getNodeSourceRange(node);
+    const source = getSourceTextForLocation();
+    if (!range || !source) return null;
+
+    return {
+        start: range.start,
+        end: range.end,
+        startPos: offsetToLineColumn(source, range.start),
+        endPos: offsetToLineColumn(source, range.end),
+        code: source.slice(range.start, range.end),
+    };
+}
+
+function formatLineRange(info) {
+    if (!info) return 'unavailable';
+    return info.startPos.line === info.endPos.line
+        ? `line ${info.startPos.line}`
+        : `lines ${info.startPos.line}-${info.endPos.line}`;
+}
+
+function buildInlineNodeLocation(node) {
+    const info = getNodeLocationInfo(node);
+    if (!info) return ' <span class="capture-location">(source unavailable)</span>';
+    return ` <span class="capture-location">(${escapeHtml(formatLineRange(info))})</span>`;
+}
+
+function buildCodeBlockHtml(code) {
+    const lines = String(code).split('\n');
+    return `<pre class="capture-code">${escapeHtml(lines.join('\n'))}</pre>`;
+}
+
+function buildNodeLocationDetails(node) {
+    const info = getNodeLocationInfo(node);
+    let html = '';
+
+    if (!info) {
+        html += '<div class="detail-row">';
+        html += '<span class="detail-label">Source:</span> ';
+        html += '<span class="detail-value">unavailable</span>';
+        html += '</div>';
+        return html;
+    }
+
+    html += '<div class="detail-row">';
+    html += '<span class="detail-label">Line:</span> ';
+    html += `<span class="detail-value">${escapeHtml(formatLineRange(info))}</span>`;
+    html += '</div>';
+
+    html += '<div class="detail-row">';
+    html += '<span class="detail-label">Code:</span>';
+    html += buildCodeBlockHtml(info.code);
+    html += '</div>';
+
+    return html;
+}
+
+function buildMatchRootSummary(result) {
+    const rootNode = getResultRootNode(result);
+    let html = '<div class="capture-item-wrapper">';
+    html += '<div class="capture-item">';
+    html += `<span class="capture-name">matched:</span> ${formatNode(rootNode)}${buildInlineNodeLocation(rootNode)}`;
+    html += '</div>';
+    html += '<div class="capture-details" style="display: block;">';
+    html += buildCaptureDetails(rootNode);
+    html += '</div>';
+    html += '</div>';
+    return html;
+}
+
 function isNumericText(value) {
     return /^-?\d+(?:\.\d+)?$/.test(String(value));
 }
@@ -626,11 +859,34 @@ function formatPatternAttrValue(node) {
     return JSON.stringify(text);
 }
 
-function nodeToPatternAtom(node) {
+function isStructuralFieldNode(node) {
+    const type = node?.Attr0?.();
+    return type === '__Field' || type === '__ListField' || type === '__Null';
+}
+
+function formatPatternNodeType(type) {
+    if (type === undefined || type === null || type === '') return '';
+
+    const text = String(type);
+    if (/^[A-Za-z][A-Za-z0-9_$]*$/.test(text)) {
+        return text;
+    }
+    return JSON.stringify(text);
+}
+
+function nodeToPatternAtom(node, options = {}) {
     if (!node) return '';
 
-    const type = node.Attr0() || '';
-    const value = formatPatternAttrValue(node);
+    if (isStructuralFieldNode(node)) {
+        const value = formatPatternAttrValue(node);
+        return value === null ? '.' : `.#${value}`;
+    }
+
+    const type = formatPatternNodeType(node.Attr0() || '');
+    const includeValue = options.includeValue !== false || (
+        options.keepStructuralFieldValue && isStructuralFieldNode(node)
+    );
+    const value = includeValue ? formatPatternAttrValue(node) : null;
     return value === null ? type : `${type}#${value}`;
 }
 
@@ -650,14 +906,29 @@ function getRenderedNodePath(node) {
     return path.length > 0 ? path : [node];
 }
 
+function buildReachablePathPattern(path, options = {}) {
+    const nodes = path.filter(Boolean);
+    if (nodes.length === 0) return '';
+
+    let pattern = nodeToPatternAtom(nodes[0], options);
+    for (let i = 1; i < nodes.length; i++) {
+        const connector = isStructuralFieldNode(nodes[i]) ? ' >~ ' : ' > .* ';
+        pattern += connector + nodeToPatternAtom(nodes[i], options);
+    }
+    return pattern;
+}
+
 function nodeToReachablePathPattern(node) {
     const path = getRenderedNodePath(node);
-    return path.map(nodeToPatternAtom).join(' > .* ');
+    return buildReachablePathPattern(path, { includeValue: true });
 }
 
 function nodeToReachableTypePathPattern(node) {
     const path = getRenderedNodePath(node);
-    return path.map(n => n?.Attr0?.() || '').filter(Boolean).join(' > .* ');
+    return buildReachablePathPattern(path, {
+        includeValue: false,
+        keepStructuralFieldValue: true,
+    });
 }
 
 function selectTargetSourceForNode(node) {
@@ -1774,7 +2045,7 @@ function setTreeOrientation(orientation) {
 const TARGET_SOURCE_HELP = {
     treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
     code:          'JavaScriptコードを入力するとASTへ変換してターゲット木として表示します。',
-    json:          'JSON AST または汎用JSONを入力するモードです。現在はUI試作中です。',
+    json:          'type キーを持つ JSON AST を入力すると、__Field / __ListField 付きの木へ変換します。',
 };
 
 function handleCodeLangSelect(e) {
@@ -2562,7 +2833,7 @@ const originalExecuteMatch = executeMatch;// 元の executeMatch を保存して
 function executeMatchWithTree() {
     console.log('🎯 executeMatchWithTree called');
 
-    const pattern   = patternInput.value.trim();
+    const pattern   = normalizePatternInput(patternInput.value.trim());
     const targetStr = getCurrentTargetInputText();
 
     console.log('  Pattern:', pattern);
@@ -3638,61 +3909,116 @@ function switchTab(tabName) {
 }
 
 
-function convertASTToTreeMatchLib(astNode) {// acorn で得られた AST ノードを TreeMatchLib が扱える形式に変換する関数。これで JavaScript の AST を TreeMatchLib のターゲットツリーとして利用できるようになる
-    if (!astNode || typeof astNode !== 'object') {// null や undefined、プリミティブ値はノードにできないので、特別な扱いをする
-        // プリミティブ値は子を持たない単純な Literal ノードとして扱う
-        const attr = { __A: 'Literal', __B: String(astNode) };
-        return new Tree1.NodeClass(attr, []);// これで null や undefined、数値や文字列などもツリー上のノードとして表現できるようになる
+const AST_FIELD_IMPORT_OPTIONS = {
+    nameKey: 'type',
+    fieldNodeName: '__Field',
+    listFieldNodeName: '__ListField',
+    nullNodeName: '__Null',
+    metaKeys: ['start', 'end', 'loc', 'range'],
+    ignoredKeys: ['type', 'start', 'end', 'loc', 'range', 'raw', 'regex'],
+    representativeValueKeys: ['name', 'value', 'operator', 'kind'],
+};
+
+function isAstLikeObject(value, nameKey) {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value) && value[nameKey]);
+}
+
+function makeTreeNode(TreeClass, nodeName, nodeValue, children) {
+    return new TreeClass.NodeClass({ __A: nodeName, __B: nodeValue ?? null }, children || []);
+}
+
+function rangeOfTreeNode(node) {
+    return node ? nodeSourceRangeMap.get(node) : null;
+}
+
+function setNodeRangeFromChildren(node, children) {
+    const ranges = children
+        .map(child => rangeOfTreeNode(child))
+        .filter(Boolean);
+    if (ranges.length === 0) return;
+
+    nodeSourceRangeMap.set(node, {
+        start: Math.min(...ranges.map(range => range.start)),
+        end: Math.max(...ranges.map(range => range.end)),
+    });
+}
+
+function setNodeRangeFromAst(node, astNode) {
+    if (typeof astNode.start === 'number' && typeof astNode.end === 'number') {
+        nodeSourceRangeMap.set(node, { start: astNode.start, end: astNode.end });
+    }
+}
+
+function defaultClassifyJsonField(node, key, value, options) {
+    if (options.ignoredKeys.includes(key)) return 'ignore';
+    if (options.metaKeys.includes(key)) return 'meta';
+    if (Array.isArray(value)) return 'list';
+    if (isAstLikeObject(value, options.nameKey)) return 'field';
+    if (value === null) return 'null';
+    return 'attribute';
+}
+
+function representativeValueOfAstNode(astNode, options) {
+    for (const key of options.representativeValueKeys) {
+        const value = astNode[key];
+        if (value !== undefined && value !== null) return String(value);
+    }
+    return null;
+}
+
+function importJsonAstNodeToTreeNode(jsonNode, TreeClass, options = AST_FIELD_IMPORT_OPTIONS) {
+    if (!TreeClass || !TreeClass.NodeClass) {
+        throw new Error('importJsonAstNodeToTreeNode: TreeClass is required.');
+    }
+    if (!isAstLikeObject(jsonNode, options.nameKey)) {
+        throw new Error(`importJsonAstNodeToTreeNode: expected object with "${options.nameKey}".`);
     }
 
-    const nodeType = astNode.type;// ノードの種類を取得する（例: 'Identifier', 'Literal', 'BinaryExpression' など）
-
-    // ノード種別によって表示したい値を取り出す
-    let nodeValue = null;
-    if (astNode.name) {// Identifier ノードは name フィールドに識別子の名前が入っているので、これを表示値とする
-        nodeValue = astNode.name; // Identifier の名前
-    } else if (astNode.value !== undefined && astNode.value !== null) {//   Literal ノードは value フィールドにリテラルの値が入っているので、これを表示値とする。ただし null も value に入ることがあるので、null の場合は表示値を空にする
-        nodeValue = String(astNode.value); // Literal の値
-    } else if (astNode.operator) {
-        nodeValue = astNode.operator; // 二項・単項演算子
-    } else if (astNode.kind) {
-        nodeValue = astNode.kind; // 変数宣言種別（const / let / var）
-    }
-
-    // 子ノードも再帰的に変換する
-    // AST は入れ子構造なので、ここを再帰にしないと深い階層を取りこぼしてしまう
+    const nodeType = jsonNode[options.nameKey];
+    const nodeValue = representativeValueOfAstNode(jsonNode, options);
     const children = [];
 
-    for (const [key, value] of Object.entries(astNode)) {// AST ノードの各フィールドを走査する。type や name、value などの基本的なフィールドはすでに処理しているので、ここでは構造本体となる子ノードだけを処理する
-        // 構造本体ではないメタ情報フィールドはスキップする
-        if (key === 'type' || key === 'start' || key === 'end' ||
-            key === 'loc' || key === 'range' || key === 'name' ||
-            key === 'value' || key === 'operator' || key === 'kind' ||
-            key === 'raw' || key === 'regex') {
+    for (const [key, value] of Object.entries(jsonNode)) {
+        const kind = defaultClassifyJsonField(jsonNode, key, value, options);
+        if (kind === 'ignore' || kind === 'meta' || kind === 'attribute') continue;
+
+        if (kind === 'field') {
+            const childNode = importJsonAstNodeToTreeNode(value, TreeClass, options);
+            const fieldNode = makeTreeNode(TreeClass, options.fieldNodeName, key, [childNode]);
+            setNodeRangeFromChildren(fieldNode, [childNode]);
+            children.push(fieldNode);
             continue;
         }
 
-        if (Array.isArray(value)) {// 配列フィールドを処理する。AST では body や arguments、params などのフィールドが配列になっていることが多いので、これらをまとめて処理する
-            // ノード配列を処理する
-            value.forEach(item => {// 配列の各要素がノードであれば再帰的に変換して子ノードリストに追加する。ただし、null や undefined、プリミティブ値はノードにできないので、これらはスキップする
-                if (item && typeof item === 'object' && item.type) {// ノードらしいオブジェクトなら変換して子ノードに追加する
-                    children.push(convertASTToTreeMatchLib(item));
-                }
-            });
-        } else if (value && typeof value === 'object' && value.type) {
-            // 単一ノードを処理する
-            children.push(convertASTToTreeMatchLib(value));
+        if (kind === 'list') {
+            const listChildren = value
+                .filter(item => isAstLikeObject(item, options.nameKey))
+                .map(item => importJsonAstNodeToTreeNode(item, TreeClass, options));
+            const listFieldNode = makeTreeNode(TreeClass, options.listFieldNodeName, key, listChildren);
+            setNodeRangeFromChildren(listFieldNode, listChildren);
+            children.push(listFieldNode);
+            continue;
+        }
+
+        if (kind === 'null') {
+            const nullNode = makeTreeNode(TreeClass, options.nullNodeName, key, []);
+            const fieldNode = makeTreeNode(TreeClass, options.fieldNodeName, key, [nullNode]);
+            children.push(fieldNode);
         }
     }
 
-    // TreeMatchLib 用の属性形式でノードを作る
-    // Tree1 では __A が Attr0（型）、__B が Attr1（値）に対応する
-    const attr = { __A: nodeType, __B: nodeValue };// これでノードの種類と表示値を属性として持たせることができるようになる。例えば、Identifier ノードなら __A: 'Identifier', __B: 'x' のようになる
-    const treeNode = new Tree1.NodeClass(attr, children);// これで AST ノードを TreeMatchLib のノードに変換して返すことができるようになる
-    if (typeof astNode.start === 'number' && typeof astNode.end === 'number') {
-        nodeSourceRangeMap.set(treeNode, { start: astNode.start, end: astNode.end });
-    }
+    const treeNode = makeTreeNode(TreeClass, nodeType, nodeValue, children);
+    setNodeRangeFromAst(treeNode, jsonNode);
     return treeNode;
+}
+
+function importJsonAstToTree(jsonAst, TreeClass, options = AST_FIELD_IMPORT_OPTIONS) {
+    const rootNode = importJsonAstNodeToTreeNode(jsonAst, TreeClass, options);
+    return new TreeClass(new TreeClass.BoxClass(rootNode));
+}
+
+function convertASTToTreeMatchLib(astNode) {
+    return importJsonAstNodeToTreeNode(astNode, Tree1, AST_FIELD_IMPORT_OPTIONS);
 }
 
 // TreeMatchLib のツリーをパターン文字列に変換する関数。これで変換したツリーを人間が読める形で表示できるようになる
@@ -3700,13 +4026,7 @@ function treeToPatternString(tree) {
     function nodeToString(node, depth = 0) {
         if (!node) return '';
 
-        const attr0 = node.Attr0();// Attr0 をノードの種類として表示する。これでツリーの構造が分かりやすくなる
-        const attr1 = node.Attr1();
-
-        let result = attr0;
-        if (attr1 !== null && attr1 !== undefined && attr1 !== '') {
-            result += `#${attr1}`;
-        }
+        let result = nodeToPatternAtom(node, { includeValue: true });
 
         const childCount = node.NumChildren();
         if (childCount > 0) {
