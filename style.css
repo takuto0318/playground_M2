@@ -64,22 +64,6 @@ header h1 {
     color: #ffffff;
 }
 
-.download-log-btn {
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-    font-size: 0.85rem;
-    font-weight: 700;
-    padding: 0.55rem 0.9rem;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.download-log-btn:hover {
-    background: rgba(255, 255, 255, 0.24);
-}
-
 /* メインコンテナ - 2カラムレイアウト */
 .container {
     max-width: 1800px;
@@ -1752,33 +1736,81 @@ textarea::placeholder {
    ============================================ */
 #svg-match-legend {
     display: flex;
-    flex-wrap: wrap;
+    align-items: flex-start;
     gap: 0.75rem;
     padding: 0.5rem 1rem 0.25rem;
     background: var(--bg-elevated, #f8f9fa);
     border-bottom: 1px solid var(--border-color, #dee2e6);
     font-size: 0.82rem;
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 12;
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .svg-legend-box {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    min-width: 120px;
+    position: relative;
+    min-width: 145px;
 }
 
 .svg-legend-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 5px;
+    background: var(--bg-surface, #fff);
     font-weight: 700;
     color: var(--text-secondary, #6c757d);
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.svg-legend-title::-webkit-details-marker {
+    display: none;
+}
+
+.svg-legend-title::after {
+    content: '▾';
+    font-size: 0.7rem;
+    transition: transform 0.15s;
+}
+
+.svg-legend-box[open] > .svg-legend-title::after {
+    transform: rotate(180deg);
 }
 
 .svg-legend-list {
-    display: flex;
-    flex-wrap: wrap;
+    display: none;
+    flex-direction: column;
+    flex-wrap: nowrap;
     gap: 0.3rem;
+}
+
+.svg-legend-box[open] > .svg-legend-list {
+    display: flex;
+    position: absolute;
+    top: calc(100% + 0.3rem);
+    left: 0;
+    z-index: 20;
+    min-width: 180px;
+    max-width: 280px;
+    max-height: 220px;
+    overflow: auto;
+    padding: 0.45rem;
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 6px;
+    background: var(--bg-surface, #fff);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
 }
 
 .svg-legend-match-item,
@@ -1793,6 +1825,7 @@ textarea::placeholder {
     transition: background 0.15s, border-color 0.15s;
     font-size: 0.8rem;
     color: var(--text-primary, #212529);
+    white-space: nowrap;
 }
 
 .svg-legend-match-item:hover,

@@ -14,7 +14,6 @@
                 <h1>TreeMatchLib Playground</h1>
                 <p class="subtitle">Interactive tree pattern matching environment</p>
             </div>
-            <button id="download-log-btn" class="download-log-btn" type="button">Download Log</button>
         </div>
     </header>
 
@@ -47,7 +46,7 @@
                     </div>
                 </div>
                 <div class="input-with-copy">
-                    <textarea id="pattern-input" placeholder="A > B##x C" rows="3"></textarea>
+                    <textarea id="pattern-input" placeholder="A > B##x C" rows="3" spellcheck="false"></textarea>
                     <!-- パターンをクリップボードにコピーするボタン -->
                     <button id="copy-pattern-btn" class="copy-btn" title="Copy Pattern">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -93,7 +92,7 @@
                 <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
                 <div class="target-editor-wrap">
                     <pre id="target-highlight-layer" aria-hidden="true"></pre>
-                    <textarea id="target-input" placeholder="A > B C D" rows="8"></textarea>
+                    <textarea id="target-input" placeholder="A > B C D" rows="8" spellcheck="false"></textarea>
                 </div>
             </section>
         </div>
@@ -331,7 +330,7 @@ function add(a, b) {
         return a + b;
     }
     return 0;
-}" rows="12"></textarea>
+}" rows="12" spellcheck="false"></textarea>
                             <div class="button-row">
                                 <!-- 「Parse to Tree」：入力コードをacornでパースしてツリー形式に変換する -->
                                 <button id="parse-code-btn" class="action-btn">

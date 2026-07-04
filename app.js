@@ -18,10 +18,6 @@ const historyList = document.getElementById('history-list');// 履歴アイテ�
 const clearHistoryBtn = document.getElementById('clear-history-btn');// 履歴を全て消すボタン
 const copyPatternBtn = document.getElementById('copy-pattern-btn');// 現在のパターンをクリップボードにコピーするボタン
 const copyResultBtn = document.getElementById('copy-result-btn');// 最後のマッチ結果をクリップボードにコピーするボタン
-const downloadLogBtn = document.getElementById('download-log-btn');// 実験ログをJSONとしてダウンロードするボタン
-
-const PLAYGROUND_RUN_LOG_STORAGE_KEY = 'treematch_playground_log_v1';
-let playgroundRunLog = loadPlaygroundRunLog();
 
 // ユーザーが入力を終えるのを待ってからマッチ処理を実行するためのタイマー ID を保存しておく変数
 let debounceTimer = null;// タイマー ID を保存しておき、次の入力があったら前のタイマーをクリアする形で実装する
@@ -107,10 +103,6 @@ function init() {
     if (copyResultBtn) {
         copyResultBtn.addEventListener('click', copyResult);
     }
-    if (downloadLogBtn) {
-        downloadLogBtn.addEventListener('click', downloadPlaygroundRunLog);
-    }
-
     // ツリー表示のズーム操作
     document.getElementById('zoom-in-btn').addEventListener('click', zoomIn);
     document.getElementById('zoom-out-btn').addEventListener('click', zoomOut);
@@ -181,11 +173,38 @@ function handleTabSwitch(e) {
 // 入力のたびに前のタイマーをクリアして、最後の入力から 300ms 後に executeMatch を呼ぶ
 // 入力のたびにすぐ実行すると、タイプ中にも重い処理が連続して走ってしまう
 // そのため少し待ってから実行している（デバウンス）。300ms タイムアウトしてから最後の入力に対して 1 回だけ実行されるイメージ
-function handleInputChange() {
+function handleInputChange(event) {
     clearTimeout(debounceTimer);
+    const preserveTreeScroll = event?.target === patternInput;
+    const treeScroll = preserveTreeScroll ? getTreeViewScrollSnapshot() : null;
+    if (treeScroll) pendingTreeViewScrollRestore = treeScroll;
+
     debounceTimer = setTimeout(() => {
         executeMatchWithTree();
+        if (treeScroll) {
+            restoreTreeViewScrollAfterRender(treeScroll);
+        }
     }, 300);
+}
+
+function restoreTreeViewScrollAfterRender(treeScroll) {
+    const restore = () => {
+        const treeVizArea = document.querySelector('.tree-viz-area');
+        if (!treeVizArea) return;
+        treeVizArea.scrollLeft = treeScroll.left;
+        treeVizArea.scrollTop = treeScroll.top;
+    };
+
+    window.requestAnimationFrame(() => {
+        restore();
+        window.requestAnimationFrame(restore);
+    });
+    window.setTimeout(() => {
+        restore();
+        if (pendingTreeViewScrollRestore === treeScroll) {
+            pendingTreeViewScrollRestore = null;
+        }
+    }, 400);
 }
 
 function normalizePatternInput(pattern) {
@@ -211,82 +230,6 @@ function getMatchMode() {// どのマッチモードのラジオボタンが選�
 
 function getCurrentTargetInputText() {
     return currentTargetSource === 'code' ? targetInput.value : targetInput.value.trim();
-}
-
-function getErrorMessage(error) {
-    return error && error.message ? error.message : String(error);
-}
-
-function hashString(text) {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-        hash = ((hash << 5) - hash) + text.charCodeAt(i);
-        hash |= 0;
-    }
-    return String(hash);
-}
-
-function loadPlaygroundRunLog() {
-    try {
-        const saved = localStorage.getItem(PLAYGROUND_RUN_LOG_STORAGE_KEY);
-        return saved ? JSON.parse(saved) : [];
-    } catch (error) {
-        console.warn('Failed to load playground run log:', error);
-        return [];
-    }
-}
-
-function savePlaygroundRunLog() {
-    try {
-        localStorage.setItem(PLAYGROUND_RUN_LOG_STORAGE_KEY, JSON.stringify(playgroundRunLog));
-    } catch (error) {
-        console.warn('Failed to save playground run log:', error);
-    }
-}
-
-function appendPlaygroundRunLog(status, executablePattern, details = {}) {
-    const targetText = getCurrentTargetInputText();
-    const rawPattern = patternInput.value.trim();
-    const entry = {
-        runIndex: playgroundRunLog.length + 1,
-        timestamp: new Date().toISOString(),
-        status,
-        mode: details.mode || getMatchMode(),
-        targetSource: currentTargetSource,
-        targetCodeLang: currentTargetSource === 'code' ? currentTargetCodeLang : null,
-        pattern: rawPattern,
-        executablePattern: executablePattern || normalizePatternInput(rawPattern),
-        targetLength: targetText.length,
-        targetHash: hashString(targetText),
-        targetPreview: targetText.slice(0, 500),
-        matchCount: typeof details.matchCount === 'number' ? details.matchCount : null,
-        errorMessage: details.errorMessage || null
-    };
-
-    playgroundRunLog.push(entry);
-    savePlaygroundRunLog();
-    return entry;
-}
-
-function downloadPlaygroundRunLog() {
-    const payload = {
-        tool: 'TreeMatchLib Playground',
-        exportedAt: new Date().toISOString(),
-        entryCount: playgroundRunLog.length,
-        entries: playgroundRunLog
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json'
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    link.href = url;
-    link.download = `treematch-playground-log-${timestamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function parseJavaScriptCodeToTree(code) {
@@ -373,10 +316,6 @@ function executeMatch() {
         }
 
     } catch (error) {// ツリー構築やマッチ処理でエラーが出た場合は、結果をクリアしてエラー表示をする
-        appendPlaygroundRunLog('error', pattern, {
-            mode: getMatchMode(),
-            errorMessage: getErrorMessage(error)
-        });
         displayError(error);
     }
 }
@@ -457,24 +396,12 @@ function executeTreeMatch(targetTree, pattern) {
 
             lastMatchResult = resultToJSON(result);
             displayMatchSuccess(result);
-            appendPlaygroundRunLog('success', pattern, {
-                mode: 'TreeMatch',
-                matchCount: 1
-            });
         } else {
             lastMatchResult = null;
             displayMatchFail();
-            appendPlaygroundRunLog('no-match', pattern, {
-                mode: 'TreeMatch',
-                matchCount: 0
-            });
         }
     } catch (error) {
         lastMatchResult = null;
-        appendPlaygroundRunLog('error', pattern, {
-            mode: 'TreeMatch',
-            errorMessage: getErrorMessage(error)
-        });
         displayError(error);
     }
 }
@@ -491,24 +418,12 @@ function executeTreeMatchFind(targetTree, pattern) {
                 results.map(r => r._matchedNodes.map(n => n.Attr0())));
             lastMatchResult = results.map(r => resultToJSON(r));// 結果を JSON 化して保存する。これも「結果をコピー」ボタンで出力できるようにするため
             displayMatchFindSuccess(results);
-            appendPlaygroundRunLog('success', pattern, {
-                mode: 'TreeMatchFind',
-                matchCount: results.length
-            });
         } else {
             lastMatchResult = null;
             displayMatchFail();
-            appendPlaygroundRunLog('no-match', pattern, {
-                mode: 'TreeMatchFind',
-                matchCount: 0
-            });
         }
     } catch (error) {
         lastMatchResult = null;
-        appendPlaygroundRunLog('error', pattern, {
-            mode: 'TreeMatchFind',
-            errorMessage: getErrorMessage(error)
-        });
         displayError(error);
     }
 }
@@ -2649,9 +2564,12 @@ function buildSVGLegend(matchMeta, captureMeta) {
 
     // Match list
     if (matchMeta.size > 0) {
-        const box = document.createElement('div');
+        const box = document.createElement('details');
         box.className = 'svg-legend-box';
-        box.innerHTML = '<div class="svg-legend-title">Match list</div>';
+        const summary = document.createElement('summary');
+        summary.className = 'svg-legend-title';
+        summary.textContent = `Match list (${matchMeta.size})`;
+        box.appendChild(summary);
         const list = document.createElement('div');
         list.className = 'svg-legend-list';
 
@@ -2683,6 +2601,7 @@ function buildSVGLegend(matchMeta, captureMeta) {
                 if (nodeIds.length > 0) {
                     scrollTreeViewToNodeId(nodeIds[0]);
                 }
+                box.open = false;
             });
             list.appendChild(chip);
         });
@@ -2693,9 +2612,12 @@ function buildSVGLegend(matchMeta, captureMeta) {
 
     // Capture list
     if (captureMeta.size > 0) {
-        const box = document.createElement('div');
+        const box = document.createElement('details');
         box.className = 'svg-legend-box';
-        box.innerHTML = '<div class="svg-legend-title">Capture list</div>';
+        const summary = document.createElement('summary');
+        summary.className = 'svg-legend-title';
+        summary.textContent = `Capture list (${captureMeta.size})`;
+        box.appendChild(summary);
         const list = document.createElement('div');
         list.className = 'svg-legend-list';
 
@@ -2716,6 +2638,7 @@ function buildSVGLegend(matchMeta, captureMeta) {
                 if (meta && meta.nodeIds.length > 0) {
                     scrollTreeViewToNodeId(meta.nodeIds[0]);
                 }
+                box.open = false;
             });
             list.appendChild(chip);
         });
