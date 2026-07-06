@@ -5,6 +5,7 @@ console.log('🔍 app.js loaded - Version: 2025-12-30 FIX2 (correct parent index
 
 // Tree クラスを初期化する
 const Tree1 = useNewTreeClass('Tree1', '__A', '__B');
+const ENABLE_DEBUG_MODE = false;
 
 // 画面で使う DOM 要素を先に取得しておく
 const patternInput = document.getElementById('pattern-input'); // ユーザーがパターンを入力する欄
@@ -2813,7 +2814,7 @@ function executeMatchWithTree() {
             // デバッグ再生に必要な情報を準備する
             // ここで TreeMatch/Find を再実行するが、targetTree は同一オブジェクトなので
             // window.lastMatchedResult と同じノード参照を持つ
-            if (pattern) {
+            if (ENABLE_DEBUG_MODE && pattern) {
                 const mode = getMatchMode();
                 let result = null;
                 try {
