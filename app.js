@@ -1,7 +1,7 @@
 // TreeMatchLib は TreeMatchLib.js からグローバル読み込みされている
 // ここでは useNewTreeClass / TreeConstruct / TreeMatch / TreeMatchFind をそのまま使う
 
-console.log('🔍 app.js loaded - Version: 2025-12-30 FIX2 (correct parent index pathLen-2)');
+// console.log('🔍 app.js loaded - Version: 2025-12-30 FIX2 (correct parent index pathLen-2)');
 
 // Tree クラスを初期化する
 const Tree1 = useNewTreeClass('Tree1', '__A', '__B');
@@ -78,7 +78,7 @@ function init() {
     // 事前読み込みツリーと入力文字列の不一致を防ぐため
     targetInput.addEventListener('input', () => {// ターゲット入力が変わるたびに、もし currentTargetTree があればそれを null にする
         if (currentTargetTree) {
-            console.log('🗑️ Target input manually edited - clearing currentTargetTree');
+            // console.log('🗑️ Target input manually edited - clearing currentTargetTree');
             currentTargetTree = null;
         }
         nodeSourceRangeMap = new WeakMap();
@@ -250,7 +250,7 @@ function parseJavaScriptCodeToTree(code) {
 
 function getTargetTreeFromInput(targetStr) {
     if (currentTargetTree) {
-        console.log('🎯 Using pre-loaded currentTargetTree');
+        // console.log('🎯 Using pre-loaded currentTargetTree');
         return currentTargetTree;
     }
 
@@ -258,7 +258,7 @@ function getTargetTreeFromInput(targetStr) {
         if (currentTargetCodeLang !== 'javascript') {
             throw new Error(`${currentTargetCodeLang} target code parsing is not supported yet.`);
         }
-        console.log('📝 Parsing JavaScript target code');
+        // console.log('📝 Parsing JavaScript target code');
         currentTargetTree = parseJavaScriptCodeToTree(targetStr);
         return currentTargetTree;
     }
@@ -269,7 +269,7 @@ function getTargetTreeFromInput(targetStr) {
         return currentTargetTree;
     }
 
-    console.log('📝 Parsing target from TreeConstruct string');
+    // console.log('📝 Parsing target from TreeConstruct string');
     currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
     return currentTargetTree;
 }
@@ -392,8 +392,8 @@ function executeTreeMatch(targetTree, pattern) {
             // 今回のマッチに使われたノード一覧を計算して result に付与する
             result._matchedNodes = calcMatchedNodeCaptures(
                 result.GetRootCapture(), nextCaptureListAdd);
-            console.log('[executeTreeMatch] _matchedNodes:',
-                result._matchedNodes.map(n => n.Attr0()));
+            // console.log('[executeTreeMatch] _matchedNodes:',
+            //     result._matchedNodes.map(n => n.Attr0()));
 
             lastMatchResult = resultToJSON(result);
             displayMatchSuccess(result);
@@ -415,8 +415,8 @@ function executeTreeMatchFind(targetTree, pattern) {
         const results = treeMatchFindWithMatchedNode(targetTree, pattern);
 
         if (results.length > 0) {
-            console.log('[executeTreeMatchFind] results:', results.length,
-                results.map(r => r._matchedNodes.map(n => n.Attr0())));
+            // console.log('[executeTreeMatchFind] results:', results.length,
+            //     results.map(r => r._matchedNodes.map(n => n.Attr0())));
             lastMatchResult = results.map(r => resultToJSON(r));// 結果を JSON 化して保存する。これも「結果をコピー」ボタンで出力できるようにするため
             displayMatchFindSuccess(results);
         } else {
@@ -2760,13 +2760,13 @@ function debugZoomReset() {
 // 「マッチ結果」「可視化」「デバッグ」が別々に更新されると画面の整合が崩れやすいので、ここでまとめて同期
 const originalExecuteMatch = executeMatch;// 元の executeMatch を保存しておく
 function executeMatchWithTree() {
-    console.log('🎯 executeMatchWithTree called');
+    // console.log('🎯 executeMatchWithTree called');
 
     const pattern   = normalizePatternInput(patternInput.value.trim());
     const targetStr = getCurrentTargetInputText();
 
-    console.log('  Pattern:', pattern);
-    console.log('  Target:', targetStr);
+    // console.log('  Pattern:', pattern);
+    // console.log('  Target:', targetStr);
 
     // 【重要】マッチと SVG 描画が同一ツリーオブジェクトを参照するよう、
     // currentTargetTree が未設定のときはここで一度だけ構築して格納する。
@@ -2778,7 +2778,7 @@ function executeMatchWithTree() {
     if (targetStr && !currentTargetTree) {
         try {
             currentTargetTree = getTargetTreeFromInput(targetStr);
-            console.log('🌳 Pre-built currentTargetTree for reference consistency');
+            // console.log('🌳 Pre-built currentTargetTree for reference consistency');
         } catch (error) {
             prebuildError = error;
             // パターンありの場合は originalExecuteMatch() のエラーハンドリングに委ねる
@@ -2830,7 +2830,7 @@ function executeMatchWithTree() {
                     }
                 } catch (_) { result = null; }
 
-                console.log('  About to call setupDebugMode with:', { result, pattern });
+                // console.log('  About to call setupDebugMode with:', { result, pattern });
                 setupDebugMode(result, pattern, targetTree);
             }
         } catch (error) {
@@ -2928,7 +2928,7 @@ function getChildIndex(capture) {
     try {
         const pathLen = capture.PathLength();
         if (pathLen === 0) {
-            console.log(`  getChildIndex: Root node, returning 0`);
+            // console.log(`  getChildIndex: Root node, returning 0`);
             return 0; // ルートノードには兄弟がないので 0 とする
         }
 
@@ -2943,10 +2943,10 @@ function getChildIndex(capture) {
         const parentIndex = pathLen - 2;
         const parent = capture.PathNthUpNode(parentIndex);
 
-        console.log(`  Getting parent for ${nodeName}${nodeValue ? '#'+nodeValue : ''} at PathNthUpNode(${parentIndex})`);
+        // console.log(`  Getting parent for ${nodeName}${nodeValue ? '#'+nodeValue : ''} at PathNthUpNode(${parentIndex})`);
 
         if (!parent) {
-            console.log(`  getChildIndex: No parent for ${nodeName}, returning 0`);
+            // console.log(`  getChildIndex: No parent for ${nodeName}, returning 0`);
             return 0;
         }
 
@@ -2957,14 +2957,14 @@ function getChildIndex(capture) {
         const numChildren = parent.NumChildren();
 
         // デバッグ用に親の全子ノードを表示する
-        console.log(`  Parent ${parentName} has ${numChildren} children:`);
+        // console.log(`  Parent ${parentName} has ${numChildren} children:`);
         for (let i = 0; i < numChildren; i++) {
             const child = parent.NthChildSubtree(i).GetRootNode();
             const childName = child.Attr0();
             const childValue = child.Attr1();
-            console.log(`    [${i}] ${childName}${childValue ? '#'+childValue : ''}`);
+            // console.log(`    [${i}] ${childName}${childValue ? '#'+childValue : ''}`);
         }
-        console.log(`  Looking for: ${nodeName}${nodeValue ? '#'+nodeValue : ''}`);
+        // console.log(`  Looking for: ${nodeName}${nodeValue ? '#'+nodeValue : ''}`);
 
         for (let i = 0; i < numChildren; i++) {
             const child = parent.NthChildSubtree(i).GetRootNode();
@@ -2973,11 +2973,11 @@ function getChildIndex(capture) {
 
             // 型と値が一致すれば同じノードとみなす
             if (childName === nodeName && childValue === nodeValue) {
-                console.log(`  ✓ FOUND at index ${i}`);
+                // console.log(`  ✓ FOUND at index ${i}`);
                 return i;
             }
         }
-        console.log(`  ✗ NOT FOUND, returning 0`);
+        // console.log(`  ✗ NOT FOUND, returning 0`);
         return 0;
     } catch (e) {
         console.warn('Could not determine child index:', e);
@@ -3039,7 +3039,7 @@ function reconstructCaptureChain(pattern, captureName, result) {
         let current = finalCapture;
         const pathLength = current.PathLength();
 
-        console.log(`🔍 Reconstructing chain for "${captureName}", pathLength=${pathLength}`);
+        // console.log(`🔍 Reconstructing chain for "${captureName}", pathLength=${pathLength}`);
 
         // root から現在ノードまでの経路上にあるノードを順に集める
         // PathNthUpNode(0) = root, PathNthUpNode(pathLength) = 現在ノード
@@ -3047,13 +3047,13 @@ function reconstructCaptureChain(pattern, captureName, result) {
             const node = current.PathNthUpNode(i);
             if (node) {
                 const nodeStr = node.Attr0() + (node.Attr1() ? '#' + node.Attr1() : '');
-                console.log(`  [${i}] PathNthUpNode(${i}) = ${nodeStr}`);
+                // console.log(`  [${i}] PathNthUpNode(${i}) = ${nodeStr}`);
                 chain.push(node);
             }
         }
 
         // PathNthUpNode は最初から root → leaf 順なので reverse は不要
-        console.log(`  ✓ Chain reconstructed: ${chain.length} nodes`);
+        // console.log(`  ✓ Chain reconstructed: ${chain.length} nodes`);
 
         return chain.length > 1 ? chain : null;
     } catch (error) {
@@ -3063,7 +3063,7 @@ function reconstructCaptureChain(pattern, captureName, result) {
 }
 
 function addStepsForSingleResult(result, steps, pattern) {
-    console.log('🔧 addStepsForSingleResult called', { result, pattern });
+    // console.log('🔧 addStepsForSingleResult called', { result, pattern });
 
     // greedy / lazy 量指定子があるか確認し、必要ならバックトラック演出を入れる
     const hasQuantifiers = pattern && (pattern.includes('+') || pattern.includes('*') || pattern.includes('?'));
@@ -3073,7 +3073,7 @@ function addStepsForSingleResult(result, steps, pattern) {
 
     // 単一キャプチャを集める
     const captureNames = result.GetCaptureNames();
-    console.log('📝 captureNames:', captureNames);
+    // console.log('📝 captureNames:', captureNames);
     captureNames.forEach(name => {
         const capture = result.Capture(name);
         allCaptures.push({
@@ -3104,9 +3104,9 @@ function addStepsForSingleResult(result, steps, pattern) {
     });
 
     // デバッグ用: ソート前のキャプチャ情報を表示する
-    console.log('=== Captures BEFORE sorting ===');
+    // console.log('=== Captures BEFORE sorting ===');
     allCaptures.forEach((item, idx) => {
-        console.log(`[${idx}] name="${item.name}", depth=${item.depth}, childIndex=${item.childIndex}, type=${item.type}`);
+        // console.log(`[${idx}] name="${item.name}", depth=${item.depth}, childIndex=${item.childIndex}, type=${item.type}`);
     });
 
     // 深さ順でソートする（浅いもの = root に近いものを先）
@@ -3130,9 +3130,9 @@ function addStepsForSingleResult(result, steps, pattern) {
     });
 
     // デバッグ用: ソート後のキャプチャ情報を表示する
-    console.log('=== Captures AFTER sorting ===');
+    // console.log('=== Captures AFTER sorting ===');
     allCaptures.forEach((item, idx) => {
-        console.log(`[${idx}] name="${item.name}", depth=${item.depth}, childIndex=${item.childIndex}, type=${item.type}`);
+        // console.log(`[${idx}] name="${item.name}", depth=${item.depth}, childIndex=${item.childIndex}, type=${item.type}`);
     });
 
     // ツリー走査順にキャプチャを処理する
@@ -3356,13 +3356,13 @@ function drawDebugTree(tree) {// デバッグツリーを描画する関数。�
     const debugTreeGroup = document.getElementById('debug-tree-group');
     const debugTreeSvg = document.getElementById('debug-tree-svg');
 
-    console.log('drawDebugTree called', { tree, debugTreeGroup, debugTreeSvg });
+    // console.log('drawDebugTree called', { tree, debugTreeGroup, debugTreeSvg });
 
     debugTreeGroup.innerHTML = '';
     debugTreeNodeMap.clear();
 
     if (!tree) {
-        console.log('No tree to draw');
+        // console.log('No tree to draw');
         return;
     }
 
@@ -3477,12 +3477,12 @@ function drawDebugTree(tree) {// デバッグツリーを描画する関数。�
     debugTreeSvg.setAttribute('width', svgWidth);
     debugTreeSvg.setAttribute('height', svgHeight);
 
-    console.log('Debug tree drawn', {
-        nodeCount: nodeCounter,
-        mapSize: debugTreeNodeMap.size,
-        svgWidth,
-        svgHeight
-    });
+    // console.log('Debug tree drawn', {
+    //     nodeCount: nodeCounter,
+    //     mapSize: debugTreeNodeMap.size,
+    //     svgWidth,
+    //     svgHeight
+    // });
 }
 
 // 現在のキャプチャ状態表示を更新する
@@ -3648,13 +3648,13 @@ function highlightDebugNodes(step) {
         // 対応する SVG 要素を対応表から探す
         const rectElement = debugTreeNodeMap.get(step.node);
 
-        console.log('Highlighting node:', {
-            stepType: step.type,
-            hasNode: !!step.node,
-            foundRect: !!rectElement,
-            mapSize: debugTreeNodeMap.size,
-            nodeValue: step.nodeValue
-        });
+        // console.log('Highlighting node:', {
+        //     stepType: step.type,
+        //     hasNode: !!step.node,
+        //     foundRect: !!rectElement,
+        //     mapSize: debugTreeNodeMap.size,
+        //     nodeValue: step.nodeValue
+        // });
 
         if (rectElement) {
             let newClassName = '';
@@ -3675,13 +3675,13 @@ function highlightDebugNodes(step) {
             }
 
             rectElement.setAttribute('class', newClassName);
-            console.log('Set className to:', newClassName, 'on element:', rectElement);
+            // console.log('Set className to:', newClassName, 'on element:', rectElement);
         }
     }
 
     // 完了ステップでは、それまでに確定した全ノードもまとめて光らせる
     if (step.type === 'success') {
-        console.log('Success step - highlighting all matched nodes');
+        // console.log('Success step - highlighting all matched nodes');
         // それ以前のステップをたどり、確定済みノードを再度ハイライトする
         let matchedCount = 0;
         for (let i = 0; i < currentDebugStep; i++) {
@@ -3694,13 +3694,13 @@ function highlightDebugNodes(step) {
                 }
             }
         }
-        console.log('Highlighted', matchedCount, 'matched nodes in success step');
+        // console.log('Highlighted', matchedCount, 'matched nodes in success step');
     }
 }
 
 // アニメーション再生を開始する
 function playDebugAnimation() {
-    console.log('playDebugAnimation called', { isDebugPlaying, stepsLength: debugSteps.length });
+    // console.log('playDebugAnimation called', { isDebugPlaying, stepsLength: debugSteps.length });
 
     if (isDebugPlaying) return;
 
@@ -3711,10 +3711,10 @@ function playDebugAnimation() {
     const baseDelay = 800; // 1 ステップあたりの基準待ち時間（ミリ秒）
     const delay = baseDelay / debugSpeed;
 
-    console.log('Starting animation interval with delay:', delay);
+    // console.log('Starting animation interval with delay:', delay);
 
     debugAnimationTimer = setInterval(() => {
-        console.log('Animation step:', currentDebugStep, '/', debugSteps.length - 1);
+        // console.log('Animation step:', currentDebugStep, '/', debugSteps.length - 1);
 
         if (currentDebugStep >= debugSteps.length - 1) {
             pauseDebugAnimation();
@@ -3762,7 +3762,7 @@ function setDebugSpeed(speed) {
 // マッチ結果を元にデバッグモードを準備する
 // Debug タブは通常表示の副産物ではなく、再生用データを改めて組み立てる必要があるため専用の初期化を行う
 function setupDebugMode(result, pattern, targetTree) {
-    console.log('setupDebugMode called', { result, pattern, targetTree });
+    // console.log('setupDebugMode called', { result, pattern, targetTree });
 
     // 前回の状態を初期化する
     currentCaptureState = {};
@@ -3772,7 +3772,7 @@ function setupDebugMode(result, pattern, targetTree) {
     debugSteps = generateDebugSteps(result, pattern, targetTree);
     currentDebugStep = 0;
 
-    console.log('Generated debug steps:', debugSteps.length, debugSteps);
+    // console.log('Generated debug steps:', debugSteps.length, debugSteps);
 
     // デバッグ用ツリーを描画する
     drawDebugTree(targetTree);
@@ -4009,12 +4009,12 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                     locations: true
                 });
 
-                console.log('Parsed AST:', parsedAST);
+                // console.log('Parsed AST:', parsedAST);
 
                 // TreeMatchLib が扱えるツリー形式へ変換する
                 const rootNode = convertASTToTreeMatchLib(parsedAST);
                 convertedTree = new Tree1(new Tree1.BoxClass(rootNode));
-                console.log('Converted Tree:', convertedTree);
+                // console.log('Converted Tree:', convertedTree);
 
                 // 変換後ツリーを文字列表現で表示する
                 const patternString = treeToPatternString(convertedTree);
@@ -4141,7 +4141,7 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                     const jsonContent = event.target.result;
                     const jsonData = JSON.parse(jsonContent);
 
-                    console.log('Loaded JSON:', jsonData);
+                    // console.log('Loaded JSON:', jsonData);
 
                     // 最低限 ESTree 形式かを確認する
                     if (!jsonData.type) {
@@ -4154,7 +4154,7 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                     // TreeMatchLib 用の形式へ変換する
                     const rootNode = convertASTToTreeMatchLib(parsedAST);
                     convertedTree = new Tree1(new Tree1.BoxClass(rootNode));
-                    console.log('Converted Tree:', convertedTree);
+                    // console.log('Converted Tree:', convertedTree);
 
                     // 変換後ツリーを文字列で表示する
                     const patternString = treeToPatternString(convertedTree);
