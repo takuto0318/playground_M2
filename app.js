@@ -1923,7 +1923,6 @@ function toggleLayoutStyle() {
             ? (window.lastMatchedResult  || null)
             : (window.lastMatchedResults || null);
         getCurrentDrawFn()(currentTargetTree, svgMatchResults, svgMode, pattern);
-        currentZoom = 1.0;
         applyZoom();
     }
 }
@@ -1951,7 +1950,6 @@ function setTreeOrientation(orientation) {
             ? (window.lastMatchedResult  || null)
             : (window.lastMatchedResults || null);
         getCurrentDrawFn()(currentTargetTree, svgMatchResults, svgMode, pattern);
-        currentZoom = 1.0;
         applyZoom();
     }
 }
@@ -2539,8 +2537,15 @@ function scrollTreeViewToNodeId(nodeId) {
     const treeVizArea = document.querySelector('.tree-viz-area');
     if (!meta || !treeVizArea) return;
 
-    const targetLeft = meta.nodeX + meta.nodeWidth / 2 - treeVizArea.clientWidth / 2;
-    const targetTop = meta.nodeY + meta.nodeHeight / 2 - treeVizArea.clientHeight / 2;
+    const rect = meta.rectEl.getBoundingClientRect();
+    const area = treeVizArea.getBoundingClientRect();
+    const rectCenterX = rect.left + rect.width / 2;
+    const rectCenterY = rect.top + rect.height / 2;
+    const areaCenterX = area.left + treeVizArea.clientWidth / 2;
+    const areaCenterY = area.top + treeVizArea.clientHeight / 2;
+
+    const targetLeft = treeVizArea.scrollLeft + (rectCenterX - areaCenterX);
+    const targetTop = treeVizArea.scrollTop + (rectCenterY - areaCenterY);
     treeVizArea.scrollTo({
         left: Math.max(0, targetLeft),
         top: Math.max(0, targetTop),
@@ -2804,8 +2809,7 @@ function executeMatchWithTree() {
             getCurrentDrawFn()(targetTree, svgMatchResults, svgMode, pattern);
             updateSourceMatchHighlights(svgMatchResults, svgMode);
 
-            // 新しいツリーを描いたらズームを初期値へ戻す
-            currentZoom = 1.0;
+            // パターン編集による再描画でも、利用者が選んだズーム倍率を維持する
             applyZoom();
 
             // ツリーがあるときだけズーム操作を見せる

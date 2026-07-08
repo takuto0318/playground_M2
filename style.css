@@ -36,7 +36,7 @@ body {
 /* ヘッダー */
 header {
     background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-    padding: 1rem 2rem 1.15rem;
+    padding: 0.5rem 2rem 0.55rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     flex: 0 0 auto;
 }
@@ -51,15 +51,16 @@ header {
 }
 
 header h1 {
-    font-size: 2.35rem;
+    font-size: 1.9rem;
     font-weight: 700;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.05rem;
     color: #ffffff;
-    line-height: 1.1;
+    line-height: 1.05;
 }
 
 .subtitle {
-    font-size: 1rem;
+    font-size: 0.85rem;
+    line-height: 1.2;
     opacity: 0.9;
     color: #ffffff;
 }
