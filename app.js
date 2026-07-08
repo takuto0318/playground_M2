@@ -2534,21 +2534,11 @@ function setupCaptureHoverEvents(captureMeta) {
 
 function scrollTreeViewToNodeId(nodeId) {
     const meta = nodeIdToRenderMeta.get(nodeId);
-    const treeVizArea = document.querySelector('.tree-viz-area');
-    if (!meta || !treeVizArea) return;
+    if (!meta) return;
 
-    const rect = meta.rectEl.getBoundingClientRect();
-    const area = treeVizArea.getBoundingClientRect();
-    const rectCenterX = rect.left + rect.width / 2;
-    const rectCenterY = rect.top + rect.height / 2;
-    const areaCenterX = area.left + treeVizArea.clientWidth / 2;
-    const areaCenterY = area.top + treeVizArea.clientHeight / 2;
-
-    const targetLeft = treeVizArea.scrollLeft + (rectCenterX - areaCenterX);
-    const targetTop = treeVizArea.scrollTop + (rectCenterY - areaCenterY);
-    treeVizArea.scrollTo({
-        left: Math.max(0, targetLeft),
-        top: Math.max(0, targetTop),
+    meta.rectEl.scrollIntoView({
+        block: 'center',
+        inline: 'center',
         behavior: 'smooth',
     });
     flashNodeRect(meta.rectEl);
@@ -2605,9 +2595,9 @@ function buildSVGLegend(matchMeta, captureMeta) {
             chip.addEventListener('mouseleave', scheduleSVGHoverClear);
             chip.addEventListener('click', () => {
                 if (nodeIds.length > 0) {
-                    scrollTreeViewToNodeId(nodeIds[0]);
+                    box.open = false;
+                    window.setTimeout(() => scrollTreeViewToNodeId(nodeIds[0]), 0);
                 }
-                box.open = false;
             });
             list.appendChild(chip);
         });
@@ -2642,9 +2632,9 @@ function buildSVGLegend(matchMeta, captureMeta) {
             chip.addEventListener('click', () => {
                 const meta = captureMeta.get(captureName);
                 if (meta && meta.nodeIds.length > 0) {
-                    scrollTreeViewToNodeId(meta.nodeIds[0]);
+                    box.open = false;
+                    window.setTimeout(() => scrollTreeViewToNodeId(meta.nodeIds[0]), 0);
                 }
-                box.open = false;
             });
             list.appendChild(chip);
         });
