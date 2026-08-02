@@ -1016,13 +1016,13 @@ function showNodeContextMenu(event, node) {
     const menu = ensureNodeContextMenu();
     menu.innerHTML = '';
 
-    addNodeContextMenuItem(menu, 'このノードをパターンに追加', () => {
+    addNodeContextMenuItem(menu, 'Add this node to the pattern', () => {
         insertTextIntoPatternInput(nodeToPatternAtom(node));
     });
-    addNodeContextMenuItem(menu, 'ここまでのパスをパターンに追加(値なし)', () => {
+    addNodeContextMenuItem(menu, 'Add path to pattern (no values)', () => {
         insertTextIntoPatternInput(nodeToReachableTypePathPattern(node));
     });
-    addNodeContextMenuItem(menu, 'ここまでのパスをパターンに追加(値あり)', () => {
+    addNodeContextMenuItem(menu, 'Add path to pattern (with values)', () => {
         insertTextIntoPatternInput(nodeToReachablePathPattern(node));
     });
 
