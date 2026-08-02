@@ -151,26 +151,29 @@
                 <!-- Tree Viewタブ：SVGでツリー構造を視覚的に描画する -->
                 <div class="tab-content" id="tab-tree-viz">
                     <div class="tree-viz-area">
-                        <!-- ツールバー：表示モード切替（SVG の上に通常フローで配置） -->
-                        <div id="tree-viz-toolbar" class="tree-viz-toolbar">
-                            <button class="layout-toggle-btn orientation-btn active" data-orientation="horizontal" type="button" title="Horizontal Tree View">
-                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                    <rect x="1.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <rect x="10.5" y="5.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <rect x="10.5" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <path d="M3.5 5.5v7.5M3.5 7.5h7M3.5 12.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                <span>Horizontal</span>
-                            </button>
-                            <button class="layout-toggle-btn orientation-btn" data-orientation="vertical" type="button" title="Vertical Tree View">
-                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                    <rect x="5.5" y="1.5" width="5" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <rect x="2" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <rect x="10" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                    <path d="M8 5.5v3M4 8.5h8M4 8.5v2M12 8.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                <span>Vertical</span>
-                            </button>
+                        <!-- 向き切替とマッチ凡例を、スクロールしても残る固定バーにまとめる -->
+                        <div class="tree-viz-fixed-bar">
+                            <div id="tree-viz-toolbar" class="tree-viz-toolbar">
+                                <button class="layout-toggle-btn orientation-btn active" data-orientation="horizontal" type="button" title="Horizontal Tree View">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                        <rect x="1.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <rect x="10.5" y="5.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <rect x="10.5" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <path d="M3.5 5.5v7.5M3.5 7.5h7M3.5 12.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span>Horizontal</span>
+                                </button>
+                                <button class="layout-toggle-btn orientation-btn" data-orientation="vertical" type="button" title="Vertical Tree View">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                        <rect x="5.5" y="1.5" width="5" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <rect x="2" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <rect x="10" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                        <path d="M8 5.5v3M4 8.5h8M4 8.5v2M12 8.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span>Vertical</span>
+                                </button>
+                            </div>
+                            <div id="svg-match-legend"></div>
                         </div>
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">

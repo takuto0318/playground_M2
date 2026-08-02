@@ -924,15 +924,32 @@ textarea::placeholder {
     display: block;
 }
 
-/* ツリー表示ツールバー（SVG 上部・通常フロー） */
+/* 向き切替と凡例を、Tree View のスクロール中も残る同一バーに配置 */
+.tree-viz-fixed-bar {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem 0.25rem;
+    background: var(--bg-elevated, #f8f9fa);
+    border-bottom: 1px solid var(--border-color, #dee2e6);
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 12;
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
+}
+
 .tree-viz-toolbar {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.3rem 0.25rem;
-    margin-bottom: 0.4rem;
+    padding: 0;
+    margin: 0;
     position: relative;
     z-index: 2;
+    flex-shrink: 0;
 }
 
 .toolbar-label {
@@ -1739,14 +1756,11 @@ textarea::placeholder {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
-    padding: 0.5rem 1rem 0.25rem;
-    background: var(--bg-elevated, #f8f9fa);
-    border-bottom: 1px solid var(--border-color, #dee2e6);
+    padding: 0;
+    background: transparent;
+    border: 0;
     font-size: 0.82rem;
-    position: sticky;
-    top: 0;
-    left: 0;
-    z-index: 12;
+    position: static;
     width: fit-content;
     min-width: 0;
     max-width: 100%;
