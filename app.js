@@ -248,6 +248,28 @@ function parseJavaScriptCodeToTree(code) {
     return new Tree1(new Tree1.BoxClass(rootNode));
 }
 
+function convertSimplifiedCTreeNode(cNode) {
+    if (!cNode || typeof cNode !== 'object') {
+        return makeTreeNode(Tree1, String(cNode), null, []);
+    }
+
+    const children = Array.isArray(cNode.child)
+        ? cNode.child.map(convertSimplifiedCTreeNode)
+        : [];
+    return makeTreeNode(Tree1, cNode.id || 'UnknownCNode', cNode.val ?? null, children);
+}
+
+function parseCCodeToTree(code) {
+    if (typeof parse_simplified_c === 'undefined') {
+        throw new Error('Simplified C parser is not loaded.');
+    }
+
+    nodeSourceRangeMap = new WeakMap();
+    const cTree = parse_simplified_c(code);
+    const rootNode = convertSimplifiedCTreeNode(cTree);
+    return new Tree1(new Tree1.BoxClass(rootNode));
+}
+
 function getTargetTreeFromInput(targetStr) {
     if (currentTargetTree) {
         // console.log('🎯 Using pre-loaded currentTargetTree');
@@ -255,12 +277,18 @@ function getTargetTreeFromInput(targetStr) {
     }
 
     if (currentTargetSource === 'code') {
-        if (currentTargetCodeLang !== 'javascript') {
+        if (currentTargetCodeLang === 'javascript') {
+            // console.log('📝 Parsing JavaScript target code');
+            currentTargetTree = parseJavaScriptCodeToTree(targetStr);
+            return currentTargetTree;
+        }
+        if (currentTargetCodeLang === 'c') {
+            currentTargetTree = parseCCodeToTree(targetStr);
+            return currentTargetTree;
+        }
+        else {
             throw new Error(`${currentTargetCodeLang} target code parsing is not supported yet.`);
         }
-        // console.log('📝 Parsing JavaScript target code');
-        currentTargetTree = parseJavaScriptCodeToTree(targetStr);
-        return currentTargetTree;
     }
 
     if (currentTargetSource === 'json') {
@@ -1959,6 +1987,7 @@ function setTreeOrientation(orientation) {
 const TARGET_SOURCE_HELP = {
     treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
     code:          'JavaScriptコードを入力するとASTへ変換してターゲット木として表示します。',
+    c:             'Cコードを入力すると簡易Cパーサで構文木へ変換してターゲット木として表示します。',
     json:          'type キーを持つ JSON AST を入力すると、__Field / __ListField 付きの木へ変換します。',
 };
 
@@ -1983,6 +2012,8 @@ function handleCodeLangSelect(e) {
     if (helpEl) {
         helpEl.textContent = label === 'JavaScript'
             ? TARGET_SOURCE_HELP.code
+            : label === 'C'
+            ? TARGET_SOURCE_HELP.c
             : `${label} code target mode is not implemented yet.`;
     }
 
