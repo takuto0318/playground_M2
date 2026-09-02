@@ -43,7 +43,7 @@ const MAX_ZOOM = 3.0;
 let originalSvgWidth = 800;// SVG の元の幅（ズームリセット時に戻すため）
 let originalSvgHeight = 500;// SVG の元の高さ（ズームリセット時に戻すため）
 
-// JavaScript AST 由来の TreeNode とソースコード範囲を対応付ける。
+// Code モード由来の TreeNode とソースコード範囲を対応付ける。
 // TreeConstruct 直接入力では範囲情報がないため、この Map は使われない。
 let nodeSourceRangeMap = new WeakMap();
 
@@ -256,7 +256,15 @@ function convertSimplifiedCTreeNode(cNode) {
     const children = Array.isArray(cNode.child)
         ? cNode.child.map(convertSimplifiedCTreeNode)
         : [];
-    return makeTreeNode(Tree1, cNode.id || 'UnknownCNode', cNode.val ?? null, children);
+    const treeNode = makeTreeNode(Tree1, cNode.id || 'UnknownCNode', cNode.val ?? null, children);
+
+    if (typeof cNode.start === 'number' && typeof cNode.end === 'number') {
+        nodeSourceRangeMap.set(treeNode, { start: cNode.start, end: cNode.end });
+    } else {
+        setNodeRangeFromChildren(treeNode, children);
+    }
+
+    return treeNode;
 }
 
 function parseCCodeToTree(code) {
