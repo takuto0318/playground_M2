@@ -71,3 +71,9 @@ lib/TreeMatchLib.js
 lib/output_js_simplified_c_parser.js
   簡易 C パーサ
 ```
+
+## 補足
+
+TreeMatchLib 本体については、以下のリポジトリを参照してください。
+
+https://github.com/oguranobuhiko/TreeMatchLib
