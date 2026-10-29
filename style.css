@@ -67,7 +67,7 @@ header h1 {
 
 /* メインコンテナ - 2カラムレイアウト */
 .container {
-    max-width: 1800px;
+    max-width: none;
     margin: 0 auto;
     padding: 0.25rem 2rem;
     display: grid;
