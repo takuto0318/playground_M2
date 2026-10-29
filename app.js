@@ -220,13 +220,13 @@ function normalizePatternInput(pattern) {
 }
 
 // 選択中のマッチモードを取得する
-function getMatchMode() {// どのマッチモードのラジオボタンが選択されているかを調べて、その値を返す。選択されていなければデフォルトで 'TreeMatch' を返す
+function getMatchMode() {// どのマッチモードのラジオボタンが選択されているかを調べて、その値を返す。選択されていなければデフォルトで 'TreeMatchFind' を返す
     for (const radio of matchModeRadios) {
         if (radio.checked) {
             return radio.value;// 例えば 'TreeMatch' や 'TreeMatchFind' が返る想定
         }
     }
-    return 'TreeMatch';
+    return 'TreeMatchFind';
 }
 
 function getCurrentTargetInputText() {
