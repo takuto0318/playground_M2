@@ -34,6 +34,8 @@ let currentTargetTree = null;
 // TARGET 欄の入力形式。TreeConstruct 直接入力か、JavaScript コード入力かを区別する。
 let currentTargetSource = 'treeconstruct';
 let currentTargetCodeLang = 'javascript';
+let currentJsonCstImportOptions = JsonCstImport.cloneOptions();
+let currentJsonCstTree = null;
 
 // ツリー可視化タブ用のズーム状態
 let currentZoom = 1.0;// ズーム倍率の初期値
@@ -77,6 +79,11 @@ function init() {
     // ユーザーがターゲット入力欄を直接編集したら currentTargetTree を破棄する
     // 事前読み込みツリーと入力文字列の不一致を防ぐため
     targetInput.addEventListener('input', () => {// ターゲット入力が変わるたびに、もし currentTargetTree があればそれを null にする
+        // JSON CSTはImportを押すまで直前に取り込んだ木を保持する。
+        if (currentTargetSource === 'json-cst') {
+            clearJsonCstError();
+            return;
+        }
         if (currentTargetTree) {
             // console.log('🗑️ Target input manually edited - clearing currentTargetTree');
             currentTargetTree = null;
@@ -139,17 +146,34 @@ function init() {
         item.addEventListener('click', handleCodeLangSelect);
     });
 
+    // JSON AST / JSON Syntax Tree 選択メニュとCSTインポート画面
+    document.querySelectorAll('.target-json-type-item').forEach(item => {
+        item.addEventListener('click', handleJsonTargetTypeSelect);
+    });
+    setupJsonCstImport();
+
     // 外側をクリックしたらドロップダウンを閉じる
     // 開きっぱなしになると操作しづらいため
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.pattern-section')) {
             closeHistory();
         }
+        if (!e.target.closest('.target-mode-code-wrap')) {
+            closeTargetMenu('target-code-lang-menu');
+        }
+        if (!e.target.closest('.target-mode-json-wrap')) {
+            closeTargetMenu('target-json-type-menu');
+        }
         hideNodeContextMenu();
     });
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') hideNodeContextMenu();
+        if (e.key === 'Escape') {
+            hideNodeContextMenu();
+            closeTargetMenu('target-code-lang-menu');
+            closeTargetMenu('target-json-type-menu');
+            closeJsonCstOptionsModal();
+        }
     });
 }
 
@@ -175,6 +199,11 @@ function handleTabSwitch(e) {
 // 入力のたびにすぐ実行すると、タイプ中にも重い処理が連続して走ってしまう
 // そのため少し待ってから実行している（デバウンス）。300ms タイムアウトしてから最後の入力に対して 1 回だけ実行されるイメージ
 function handleInputChange(event) {
+    // JSON CSTは入力中に自動変換せず、Import操作でのみ木を更新する。
+    // PATTERN側で予約済みの再照合タイマーも取り消さない。
+    if (event?.target === targetInput && currentTargetSource === 'json-cst') {
+        return;
+    }
     clearTimeout(debounceTimer);
     const preserveTreeScroll = event?.target === patternInput;
     const treeScroll = preserveTreeScroll ? getTreeViewScrollSnapshot() : null;
@@ -233,6 +262,11 @@ function getCurrentTargetInputText() {
     return currentTargetSource === 'code' ? targetInput.value : targetInput.value.trim();
 }
 
+function hasTargetForCurrentSource(targetStr) {
+    return Boolean(targetStr)
+        || (currentTargetSource === 'json-cst' && Boolean(currentJsonCstTree));
+}
+
 function parseJavaScriptCodeToTree(code) {
     if (typeof acorn === 'undefined') {
         throw new Error('JavaScript parser acorn is not loaded.');
@@ -284,6 +318,11 @@ function getTargetTreeFromInput(targetStr) {
         return currentTargetTree;
     }
 
+    if (currentTargetSource === 'json-cst' && currentJsonCstTree) {
+        currentTargetTree = currentJsonCstTree;
+        return currentTargetTree;
+    }
+
     if (currentTargetSource === 'code') {
         if (currentTargetCodeLang === 'javascript') {
             // console.log('📝 Parsing JavaScript target code');
@@ -305,6 +344,10 @@ function getTargetTreeFromInput(targetStr) {
         return currentTargetTree;
     }
 
+    if (currentTargetSource === 'json-cst') {
+        throw new Error('JSON CSTはImportを押して取り込んでください。');
+    }
+
     // console.log('📝 Parsing target from TreeConstruct string');
     currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
     return currentTargetTree;
@@ -315,8 +358,9 @@ function getTargetTreeFromInput(targetStr) {
 function executeMatch() {
     const pattern = normalizePatternInput(patternInput.value.trim());// パターン入力から余分な空白を取り除いて読み取る
     const targetStr = getCurrentTargetInputText();// Code モードでは start/end がずれないよう原文を使う
+    const hasTarget = hasTargetForCurrentSource(targetStr);
 
-    if (!targetStr) {// ターゲットが空なら結果表示を初期状態に戻す
+    if (!hasTarget) {// ターゲットが空なら結果表示を初期状態に戻す
         resultArea.innerHTML = '<p class="hint">Enter target to see tree visualization...</p>';
         window.lastMatchedResult = null;
         window.lastMatchedResults = null;
@@ -1997,7 +2041,52 @@ const TARGET_SOURCE_HELP = {
     code:          'JavaScriptコードを入力するとASTへ変換してターゲット木として表示します。',
     c:             'Cコードを入力すると簡易Cパーサで構文木へ変換してターゲット木として表示します。',
     json:          'type キーを持つ JSON AST を入力すると、__Field / __ListField 付きの木へ変換します。',
+    'json-cst':    '',
 };
+
+function closeTargetMenu(id) {
+    const menu = document.getElementById(id);
+    if (menu) menu.style.display = 'none';
+}
+
+function setJsonCstPanelVisible(visible) {
+    const panel = document.getElementById('json-cst-inline-panel');
+    const footer = document.getElementById('json-cst-inline-footer');
+    const targetSection = targetInput.closest('.target-section');
+    const helpElement = document.getElementById('target-source-help');
+    if (panel) panel.hidden = !visible;
+    if (footer) footer.hidden = !visible;
+    if (targetSection) targetSection.classList.toggle('json-cst-mode', visible);
+    if (helpElement) helpElement.hidden = visible;
+    if (!visible) closeJsonCstOptionsModal();
+
+    if (!targetInput.dataset.defaultPlaceholder) {
+        targetInput.dataset.defaultPlaceholder = targetInput.placeholder;
+    }
+    targetInput.placeholder = visible
+        ? '{"name":"Root","child":[]}'
+        : targetInput.dataset.defaultPlaceholder;
+
+    // JSON入力中はCodeモード用の背面ハイライトを表示しない。
+    if (targetHighlightLayer) {
+        targetHighlightLayer.style.display = visible ? 'none' : '';
+    }
+}
+
+function setActiveTargetSource(source) {
+    currentTargetSource = source;
+    document.querySelectorAll('.target-mode-btn').forEach(btn => {
+        const isJsonButton = btn.id === 'target-json-mode-btn';
+        btn.classList.toggle(
+            'active',
+            isJsonButton ? source === 'json' || source === 'json-cst' : btn.dataset.source === source
+        );
+    });
+
+    const helpEl = document.getElementById('target-source-help');
+    if (helpEl) helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
+    setJsonCstPanelVisible(source === 'json-cst');
+}
 
 function handleCodeLangSelect(e) {
     const label  = e.currentTarget.dataset.label;
@@ -2024,6 +2113,7 @@ function handleCodeLangSelect(e) {
             ? TARGET_SOURCE_HELP.c
             : `${label} code target mode is not implemented yet.`;
     }
+    setJsonCstPanelVisible(false);
 
     executeMatch();
 }
@@ -2031,7 +2121,15 @@ function handleCodeLangSelect(e) {
 function handleTargetModeClick(e) {
     const clicked = e.currentTarget;
     const source  = clicked.dataset.source;
-    currentTargetSource = source;
+
+    if (clicked.id === 'target-json-mode-btn') {
+        const menu = document.getElementById('target-json-type-menu');
+        if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+        closeTargetMenu('target-code-lang-menu');
+        return;
+    }
+
+    setActiveTargetSource(source);
     currentTargetTree = null;
     nodeSourceRangeMap = new WeakMap();
     clearSourceMatchHighlights();
@@ -2040,16 +2138,213 @@ function handleTargetModeClick(e) {
         currentTargetCodeLang = 'javascript';
     }
 
-    document.querySelectorAll('.target-mode-btn').forEach(btn => {
-        btn.classList.toggle('active', btn === clicked);
-    });
-
-    const helpEl = document.getElementById('target-source-help');
-    if (helpEl) helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
-
     // Code モードのときだけ言語選択UIを表示
     const langEl = document.getElementById('target-code-lang-menu');
     if (langEl) langEl.style.display = source === 'code' ? 'block' : 'none';
+    closeTargetMenu('target-json-type-menu');
+}
+
+function handleJsonTargetTypeSelect(e) {
+    e.stopPropagation();
+    const source = e.currentTarget.dataset.source;
+    closeTargetMenu('target-json-type-menu');
+
+    if (source === 'json-cst') {
+        setJsonCstOptionsInPanel(currentJsonCstImportOptions);
+        currentTargetTree = currentJsonCstTree;
+        nodeSourceRangeMap = new WeakMap();
+        clearSourceMatchHighlights();
+        clearJsonCstError();
+        setActiveTargetSource('json-cst');
+
+        const jsonBtn = document.getElementById('target-json-mode-btn');
+        if (jsonBtn) jsonBtn.textContent = 'JSON CST ▼';
+        targetInput.focus();
+        return;
+    }
+
+    currentTargetTree = null;
+    nodeSourceRangeMap = new WeakMap();
+    clearSourceMatchHighlights();
+    setActiveTargetSource('json');
+
+    const jsonBtn = document.getElementById('target-json-mode-btn');
+    if (jsonBtn) jsonBtn.textContent = 'JSON AST ▼';
+}
+
+function getJsonCstOptionsFromPanel() {
+    return {
+        keys: {
+            primary: document.getElementById('json-cst-primary-key').value,
+            secondary: document.getElementById('json-cst-secondary-key').value,
+            children: document.getElementById('json-cst-children-key').value,
+            attributes: document.getElementById('json-cst-attributes-key').value,
+        },
+        lookup: {
+            primary: document.getElementById('json-cst-primary-lookup').value,
+            secondary: document.getElementById('json-cst-secondary-lookup').value,
+            others: document.getElementById('json-cst-others-lookup').value,
+        },
+    };
+}
+
+function setJsonCstOptionsInPanel(options) {
+    const normalized = JsonCstImport.cloneOptions(options);
+    document.getElementById('json-cst-primary-key').value = normalized.keys.primary;
+    document.getElementById('json-cst-secondary-key').value = normalized.keys.secondary;
+    document.getElementById('json-cst-children-key').value = normalized.keys.children;
+    document.getElementById('json-cst-attributes-key').value = normalized.keys.attributes;
+    document.getElementById('json-cst-primary-lookup').value = normalized.lookup.primary;
+    document.getElementById('json-cst-secondary-lookup').value = normalized.lookup.secondary;
+    document.getElementById('json-cst-others-lookup').value = normalized.lookup.others;
+}
+
+function updateJsonCstOptionsSummary(options = currentJsonCstImportOptions) {
+    const summaryKeys = JsonCstImport.cloneOptions(options).keys;
+
+    for (const [name, value] of Object.entries(summaryKeys)) {
+        const summaryElement = document.getElementById(`json-cst-summary-${name}`);
+        if (summaryElement) summaryElement.textContent = value || '—';
+    }
+}
+
+function clearJsonCstOptionsError() {
+    const errorElement = document.getElementById('json-cst-options-error');
+    if (!errorElement) return;
+    errorElement.textContent = '';
+    errorElement.hidden = true;
+}
+
+function showJsonCstOptionsError(error) {
+    const errorElement = document.getElementById('json-cst-options-error');
+    if (!errorElement) return;
+    errorElement.textContent = error?.message || String(error);
+    errorElement.hidden = false;
+}
+
+function openJsonCstOptionsModal() {
+    const modal = document.getElementById('json-cst-options-modal');
+    const button = document.getElementById('json-cst-options-btn');
+    if (!modal) return;
+
+    setJsonCstOptionsInPanel(currentJsonCstImportOptions);
+    clearJsonCstOptionsError();
+    modal.hidden = false;
+    if (button) button.setAttribute('aria-expanded', 'true');
+    document.getElementById('json-cst-primary-key').focus();
+}
+
+function closeJsonCstOptionsModal() {
+    const modal = document.getElementById('json-cst-options-modal');
+    const button = document.getElementById('json-cst-options-btn');
+    if (!modal || modal.hidden) return;
+
+    // Applyされていない編集値を破棄する。
+    setJsonCstOptionsInPanel(currentJsonCstImportOptions);
+    clearJsonCstOptionsError();
+    modal.hidden = true;
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.focus();
+    }
+}
+
+function applyJsonCstOptions() {
+    try {
+        const options = JsonCstImport.validateOptions(getJsonCstOptionsFromPanel());
+        currentJsonCstImportOptions = JsonCstImport.cloneOptions(options);
+        updateJsonCstOptionsSummary(currentJsonCstImportOptions);
+
+        const modal = document.getElementById('json-cst-options-modal');
+        const button = document.getElementById('json-cst-options-btn');
+        clearJsonCstOptionsError();
+        if (modal) modal.hidden = true;
+        if (button) {
+            button.setAttribute('aria-expanded', 'false');
+            button.focus();
+        }
+    } catch (error) {
+        showJsonCstOptionsError(error);
+    }
+}
+
+function showJsonCstError(error) {
+    const errorElement = document.getElementById('json-cst-error');
+    if (!errorElement) return;
+    errorElement.textContent = error?.message || String(error);
+    errorElement.hidden = false;
+}
+
+function clearJsonCstError() {
+    const errorElement = document.getElementById('json-cst-error');
+    if (!errorElement) return;
+    errorElement.textContent = '';
+    errorElement.hidden = true;
+}
+
+function importJsonCstFromPanel() {
+    const jsonText = targetInput.value.trim();
+    if (!jsonText) {
+        showJsonCstError(new Error('JSONを入力してください。'));
+        return;
+    }
+
+    try {
+        const options = JsonCstImport.validateOptions(currentJsonCstImportOptions);
+        const jsonValue = JsonCstImport.parseJsonText(jsonText);
+        const importedTree = JsonCstImport.importJsonSyntaxTree(jsonValue, Tree1, options);
+
+        // ここまで成功した後にだけ、現在表示中の木を置き換える。
+        currentJsonCstTree = importedTree;
+        currentTargetTree = importedTree;
+        nodeSourceRangeMap = new WeakMap();
+        clearSourceMatchHighlights();
+        clearJsonCstError();
+        setActiveTargetSource('json-cst');
+
+        const jsonBtn = document.getElementById('target-json-mode-btn');
+        if (jsonBtn) jsonBtn.textContent = 'JSON CST ▼';
+
+        executeMatchWithTree();
+    } catch (error) {
+        showJsonCstError(error);
+    }
+}
+
+function insertJsonCstSample() {
+    if (targetInput.value.trim() && !window.confirm('現在のJSONをサンプルで上書きしますか？')) {
+        return;
+    }
+
+    try {
+        targetInput.value = JsonCstImport.generateSample(currentJsonCstImportOptions);
+        clearJsonCstError();
+    } catch (error) {
+        showJsonCstError(error);
+    }
+}
+
+function setupJsonCstImport() {
+    const panel = document.getElementById('json-cst-inline-panel');
+    if (!panel) return;
+
+    document.getElementById('json-cst-import-btn').addEventListener('click', importJsonCstFromPanel);
+    document.getElementById('json-cst-sample-btn').addEventListener('click', insertJsonCstSample);
+    document.getElementById('json-cst-clear-btn').addEventListener('click', () => {
+        targetInput.value = '';
+        clearJsonCstError();
+        targetInput.focus();
+    });
+    document.getElementById('json-cst-options-btn').addEventListener('click', openJsonCstOptionsModal);
+    document.getElementById('json-cst-options-apply-btn').addEventListener('click', applyJsonCstOptions);
+    document.getElementById('json-cst-options-cancel-btn').addEventListener('click', closeJsonCstOptionsModal);
+    document.getElementById('json-cst-options-close-btn').addEventListener('click', closeJsonCstOptionsModal);
+    document.getElementById('json-cst-options-modal').addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) closeJsonCstOptionsModal();
+    });
+    setJsonCstOptionsInPanel(currentJsonCstImportOptions);
+    updateJsonCstOptionsSummary(currentJsonCstImportOptions);
+    setJsonCstPanelVisible(false);
 }
 
 // ===== 横向きコンパクトレイアウト =====
@@ -2793,6 +3088,7 @@ function executeMatchWithTree() {
 
     const pattern   = normalizePatternInput(patternInput.value.trim());
     const targetStr = getCurrentTargetInputText();
+    const hasTarget = hasTargetForCurrentSource(targetStr);
 
     // console.log('  Pattern:', pattern);
     // console.log('  Target:', targetStr);
@@ -2804,7 +3100,7 @@ function executeMatchWithTree() {
     // （別々に TreeConstruct() すると異なるオブジェクトになり、
     //   Capture(name).Node() の参照が nodeObjectToNodeId に見つからなくなる）
     let prebuildError = null;
-    if (targetStr && !currentTargetTree) {
+    if (hasTarget && !currentTargetTree) {
         try {
             currentTargetTree = getTargetTreeFromInput(targetStr);
             // console.log('🌳 Pre-built currentTargetTree for reference consistency');
@@ -2825,7 +3121,7 @@ function executeMatchWithTree() {
     originalExecuteMatch();
 
     // 結果表示に加えて SVG ツリー描画とデバッグ準備も行う
-    if (targetStr) {
+    if (hasTarget) {
         try {
             // currentTargetTree は上で確保済み（またはインポート済み）
             const targetTree = currentTargetTree;

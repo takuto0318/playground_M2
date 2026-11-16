@@ -478,7 +478,8 @@ textarea::placeholder {
 
 /* 3スロットを固定幅で揃える（TreeConstruct が収まる幅を基準） */
 .target-mode-toggle > .target-mode-btn,
-.target-mode-toggle > .target-mode-code-wrap {
+.target-mode-toggle > .target-mode-code-wrap,
+.target-mode-toggle > .target-mode-json-wrap {
     width: 95px;
     flex: 0 0 95px;
 }
@@ -491,10 +492,15 @@ textarea::placeholder {
     border-radius: 0 4px 4px 0;
 }
 
+.target-mode-toggle > .target-mode-json-wrap:last-child > .target-mode-btn {
+    border-radius: 0 4px 4px 0;
+}
+
 /* ボタン間のセパレータ（code-wrap を挟む構造に対応） */
 .target-mode-btn + .target-mode-btn,
 .target-mode-btn + .target-mode-code-wrap > .target-mode-btn,
-.target-mode-code-wrap + .target-mode-btn {
+.target-mode-code-wrap + .target-mode-btn,
+.target-mode-code-wrap + .target-mode-json-wrap > .target-mode-btn {
     border-left: 1px solid var(--border-color);
 }
 
@@ -509,13 +515,15 @@ textarea::placeholder {
 }
 
 /* Code ボタンの wrap（ドロップダウンの基点） */
-.target-mode-code-wrap {
+.target-mode-code-wrap,
+.target-mode-json-wrap {
     position: relative;
     display: flex;
 }
 
 /* Code ボタンは wrap 全体を埋めて高さを揃える */
-.target-mode-code-wrap > .target-mode-btn {
+.target-mode-code-wrap > .target-mode-btn,
+.target-mode-json-wrap > .target-mode-btn {
     width: 100%;
     height: 100%;
     display: flex;
@@ -524,7 +532,8 @@ textarea::placeholder {
 }
 
 /* Code ▼ ドロップダウン（言語メニュー） */
-.target-code-lang-menu {
+.target-code-lang-menu,
+.target-json-type-menu {
     position: absolute;
     top: calc(100% + 3px);
     left: 0;
@@ -537,7 +546,8 @@ textarea::placeholder {
     padding: 2px 0;
 }
 
-.target-code-lang-item {
+.target-code-lang-item,
+.target-json-type-item {
     display: block;
     padding: 4px 10px;
     font-size: 0.7rem;
@@ -547,9 +557,268 @@ textarea::placeholder {
     cursor: pointer;
 }
 
-.target-code-lang-item:hover {
+.target-code-lang-item:hover,
+.target-json-type-item:hover {
     background: var(--bg-elevated);
     color: var(--text-primary, #1e293b);
+}
+
+/* JSON Syntax Tree import controls in the TARGET panel */
+.json-cst-inline-panel[hidden],
+.json-cst-inline-footer[hidden] {
+    display: none;
+}
+
+.json-cst-inline-panel {
+    flex: 0 1 auto;
+    padding: 0.45rem 0.65rem 0.4rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-surface);
+}
+
+.json-cst-options-summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.json-cst-options-summary {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.json-cst-options-summary span {
+    white-space: nowrap;
+}
+
+.json-cst-options-summary span:not(:last-child)::after {
+    content: '/';
+    margin: 0 0.35rem;
+    color: var(--border-color);
+}
+
+.json-cst-options-summary code {
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 700;
+}
+
+.json-cst-options-summary-row .json-cst-options-btn {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    height: 27px;
+    margin-right: -0.4rem;
+    padding: 0 0.35rem;
+    gap: 0;
+    font-size: 0.68rem;
+    line-height: 1;
+}
+
+.json-cst-options-btn[aria-expanded="true"] {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: var(--bg-elevated);
+}
+
+.json-cst-options-modal[hidden] {
+    display: none;
+}
+
+.json-cst-options-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.5);
+}
+
+.json-cst-options-dialog {
+    width: min(620px, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    padding: 0.85rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.28);
+}
+
+.json-cst-options-dialog-header,
+.json-cst-options-dialog-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.json-cst-options-dialog-header h2 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.json-cst-options-close-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.json-cst-options-dialog-actions {
+    justify-content: flex-end;
+    gap: 0.45rem;
+    margin-top: 0.7rem;
+}
+
+.json-cst-options-dialog-actions .action-btn {
+    width: auto;
+    min-width: 0;
+    height: 30px;
+    padding: 0 0.7rem;
+    font-size: 0.72rem;
+    line-height: 1;
+}
+
+.json-cst-inline-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.json-cst-settings {
+    margin: 0.7rem 0 0;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    overflow: visible;
+}
+
+.json-cst-settings[hidden] {
+    display: none;
+}
+
+.json-cst-setting-row {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.8fr) minmax(100px, 1.2fr) minmax(105px, 1fr);
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.28rem 0.45rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.7rem;
+}
+
+.json-cst-setting-row:first-child {
+    border-top: 0;
+}
+
+.json-cst-setting-head {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.json-cst-setting-row input,
+.json-cst-setting-row select {
+    width: 100%;
+    min-width: 0;
+    padding: 0.25rem 0.35rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.json-cst-setting-row strong,
+.json-cst-error {
+    color: var(--error-color);
+}
+
+.json-cst-fixed-note,
+.json-cst-no-key {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.json-cst-inline-actions {
+    gap: 0.25rem;
+}
+
+.json-cst-inline-actions .action-btn {
+    width: auto;
+    min-width: 0;
+    height: 30px;
+    padding: 0 0.65rem;
+    font-size: 0.72rem;
+    line-height: 1;
+}
+
+.json-cst-inline-actions #json-cst-import-btn {
+    margin-left: 0.4rem;
+}
+
+.json-cst-inline-footer {
+    flex: 0 0 auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    padding: 0.25rem 0.65rem 0.3rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-surface);
+}
+
+.json-cst-error {
+    margin: 0 0 0.4rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 5px;
+    background: rgba(239, 68, 68, 0.08);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+}
+
+.target-section.json-cst-mode {
+    overflow: hidden;
+}
+
+.target-section.json-cst-mode .target-editor-wrap {
+    flex: 1 0 6.2rem;
+    min-height: 6.2rem;
+    overflow: hidden;
+    background: var(--code-bg);
+}
+
+.target-section.json-cst-mode .target-editor-wrap #target-input {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    resize: none;
+    background: var(--code-bg);
+}
+
+@media (max-width: 760px) {
+    .json-cst-setting-row {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+
+    .json-cst-setting-head {
+        display: none;
+    }
 }
 
 /* Target Source 説明文 */
