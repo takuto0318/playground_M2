@@ -786,14 +786,44 @@ textarea::placeholder {
 .json-cst-inline-actions .action-btn {
     width: auto;
     min-width: 0;
-    height: 30px;
+    height: 28px;
     padding: 0 0.65rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
     font-size: 0.72rem;
+    font-weight: 500;
     line-height: 1;
+    box-shadow: none;
+    transform: none;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.json-cst-inline-actions .action-btn.secondary {
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border-color: var(--border-color);
+}
+
+.json-cst-inline-actions .action-btn.secondary:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-color: #cbd5e1;
+    box-shadow: none;
+    transform: none;
 }
 
 .json-cst-inline-actions #json-cst-import-btn {
     margin-left: 0.4rem;
+    background: var(--primary-dark);
+    color: #ffffff;
+    border-color: var(--primary-dark);
+}
+
+.json-cst-inline-actions #json-cst-import-btn:hover {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    box-shadow: none;
+    transform: none;
 }
 
 .json-cst-inline-footer {
