@@ -140,27 +140,6 @@
                             <button class="tab-btn" data-tab="tree-viz">Tree View</button>
                         </div>
                     </div>
-                    <div class="header-right">
-                        <!-- Tree View のズーム・全画面操作。Tree Viewが表示されるまでは非表示にする -->
-                        <div id="zoom-controls" class="zoom-controls" style="display: none;">
-                            <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                            </button>
-                            <span id="zoom-level" class="zoom-level">100%</span>
-                            <button id="zoom-out-btn" class="zoom-btn" title="Zoom Out">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                            </button>
-                            <button id="fullscreen-btn" class="zoom-btn" title="Toggle Fullscreen">
-                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- タブのコンテンツ領域（JavaScriptでactiveクラスを切り替えて表示を制御） -->
@@ -180,31 +159,49 @@
 
                 <!-- Tree Viewタブ：SVGでツリー構造を視覚的に描画する -->
                 <div class="tab-content" id="tab-tree-viz">
-                    <div class="tree-viz-area">
-                        <!-- 向き切替とマッチ凡例を、スクロールしても残る固定バーにまとめる -->
-                        <div class="tree-viz-fixed-bar">
-                            <div id="tree-viz-toolbar" class="tree-viz-toolbar">
-                                <button class="layout-toggle-btn orientation-btn active" data-orientation="horizontal" type="button" title="Horizontal Tree View">
-                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                        <rect x="1.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <rect x="10.5" y="5.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <rect x="10.5" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <path d="M3.5 5.5v7.5M3.5 7.5h7M3.5 12.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                    <span>Horizontal</span>
-                                </button>
-                                <button class="layout-toggle-btn orientation-btn" data-orientation="vertical" type="button" title="Vertical Tree View">
-                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                        <rect x="5.5" y="1.5" width="5" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <rect x="2" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <rect x="10" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
-                                        <path d="M8 5.5v3M4 8.5h8M4 8.5v2M12 8.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
-                                    <span>Vertical</span>
-                                </button>
-                            </div>
-                            <div id="svg-match-legend"></div>
+                    <!-- 操作バーは木のスクロール領域の外に置く -->
+                    <div class="tree-viz-fixed-bar">
+                        <div id="tree-viz-toolbar" class="tree-viz-toolbar">
+                            <button class="layout-toggle-btn orientation-btn active" data-orientation="horizontal" type="button" title="Horizontal Tree View">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <rect x="1.5" y="1.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10.5" y="5.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10.5" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <path d="M3.5 5.5v7.5M3.5 7.5h7M3.5 12.5h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Horizontal</span>
+                            </button>
+                            <button class="layout-toggle-btn orientation-btn" data-orientation="vertical" type="button" title="Vertical Tree View">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                    <rect x="5.5" y="1.5" width="5" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="2" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <rect x="10" y="10.5" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.3"/>
+                                    <path d="M8 5.5v3M4 8.5h8M4 8.5v2M12 8.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Vertical</span>
+                            </button>
                         </div>
+                        <div id="svg-match-legend"></div>
+                        <div id="zoom-controls" class="zoom-controls" style="display: none;">
+                            <button id="zoom-in-btn" class="zoom-btn" title="Zoom In">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <span id="zoom-level" class="zoom-level">100%</span>
+                            <button id="zoom-out-btn" class="zoom-btn" title="Zoom Out">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button id="fullscreen-btn" class="zoom-btn" title="Toggle Fullscreen">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tree-viz-area">
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                                 <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>

@@ -208,9 +208,17 @@ function handleInputChange(event) {
     clearTimeout(debounceTimer);
     const preserveTreeScroll = event?.target === patternInput;
     const treeScroll = preserveTreeScroll ? getTreeViewScrollSnapshot() : null;
-    if (treeScroll) pendingTreeViewScrollRestore = treeScroll;
+    pendingTreeViewScrollRestore = treeScroll;
 
     debounceTimer = setTimeout(() => {
+        // 待機中にスクロールバーを動かした場合も、その最新位置を引き継ぐ。
+        if (treeScroll && pendingTreeViewScrollRestore === treeScroll) {
+            const latestTreeScroll = getTreeViewScrollSnapshot();
+            if (latestTreeScroll) {
+                treeScroll.left = latestTreeScroll.left;
+                treeScroll.top = latestTreeScroll.top;
+            }
+        }
         executeMatchWithTree();
         if (treeScroll) {
             restoreTreeViewScrollAfterRender(treeScroll);
@@ -219,23 +227,13 @@ function handleInputChange(event) {
 }
 
 function restoreTreeViewScrollAfterRender(treeScroll) {
-    const restore = () => {
-        const treeVizArea = document.querySelector('.tree-viz-area');
-        if (!treeVizArea) return;
+    if (pendingTreeViewScrollRestore !== treeScroll) return;
+    const treeVizArea = document.querySelector('.tree-viz-area');
+    if (treeVizArea) {
         treeVizArea.scrollLeft = treeScroll.left;
         treeVizArea.scrollTop = treeScroll.top;
-    };
-
-    window.requestAnimationFrame(() => {
-        restore();
-        window.requestAnimationFrame(restore);
-    });
-    window.setTimeout(() => {
-        restore();
-        if (pendingTreeViewScrollRestore === treeScroll) {
-            pendingTreeViewScrollRestore = null;
-        }
-    }, 400);
+    }
+    pendingTreeViewScrollRestore = null;
 }
 
 function normalizePatternInput(pattern) {
@@ -1022,23 +1020,10 @@ function getTreeViewScrollSnapshot() {
     };
 }
 
-function restoreScrollPositions(pageScrollX, pageScrollY, treeScroll) {
-    if (treeScroll) {
-        const treeVizArea = document.querySelector('.tree-viz-area');
-        if (treeVizArea) {
-            treeVizArea.scrollLeft = treeScroll.left;
-            treeVizArea.scrollTop = treeScroll.top;
-        }
-    }
-    window.scrollTo(pageScrollX, pageScrollY);
-}
-
 function insertTextIntoPatternInput(text) {
     if (!text) return;
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
-    const treeScroll = getTreeViewScrollSnapshot();
-    pendingTreeViewScrollRestore = treeScroll;
 
     const start = patternInput.selectionStart ?? patternInput.value.length;
     const end = patternInput.selectionEnd ?? patternInput.value.length;
@@ -1053,15 +1038,8 @@ function insertTextIntoPatternInput(text) {
     patternInput.focus();
     patternInput.setSelectionRange(cursor, cursor);
     patternInput.dispatchEvent(new Event('input', { bubbles: true }));
-    restoreScrollPositions(scrollX, scrollY, treeScroll);
-    window.setTimeout(() => restoreScrollPositions(scrollX, scrollY, treeScroll), 0);
-    window.setTimeout(() => restoreScrollPositions(scrollX, scrollY, treeScroll), 350);
-    window.setTimeout(() => {
-        restoreScrollPositions(scrollX, scrollY, treeScroll);
-        if (pendingTreeViewScrollRestore === treeScroll) {
-            pendingTreeViewScrollRestore = null;
-        }
-    }, 700);
+    window.scrollTo(scrollX, scrollY);
+    window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
 }
 
 function ensureNodeContextMenu() {
@@ -2014,15 +1992,44 @@ function updateOrientationButtons() {
     });
 }
 
+// 縦向き表示では、ルートノードが表示領域の上部中央に来るようにする。
+function scrollVerticalTreeToRoot() {
+    const treeVizArea = document.querySelector('.tree-viz-area');
+    const rootMeta = nodeIdToRenderMeta.get('0');
+    if (!treeVizArea || !rootMeta?.rectEl) return;
+
+    const areaRect = treeVizArea.getBoundingClientRect();
+    const rootRect = rootMeta.rectEl.getBoundingClientRect();
+    // bodyのCSS zoomを考慮し、表示座標をスクロール座標へ戻して計算する。
+    const scaleX = areaRect.width / treeVizArea.offsetWidth || 1;
+    const rootWidth = rootRect.width / scaleX;
+    const targetLeft = treeVizArea.scrollLeft
+        + (rootRect.left - areaRect.left) / scaleX
+        - (treeVizArea.clientWidth - rootWidth) / 2;
+
+    treeVizArea.scrollTo({
+        left: Math.max(0, targetLeft),
+        top: 0,
+        behavior: 'auto',
+    });
+}
+
 // 向き切替。horizontal / vertical のどちらを選んでいるかをボタン色にも反映する。
 function setTreeOrientation(orientation) {
     if (orientation !== 'horizontal' && orientation !== 'vertical') return;
     if (treeOrientation === orientation) {
         updateOrientationButtons();
+        if (orientation === 'vertical') {
+            pendingTreeViewScrollRestore = null;
+            scrollVerticalTreeToRoot();
+        }
         return;
     }
     treeOrientation = orientation;
     updateOrientationButtons();
+
+    // 向き切替は明示的な操作なので、切替前のスクロール位置は復元しない。
+    pendingTreeViewScrollRestore = null;
 
     if (currentTargetTree) {
         const pattern         = patternInput.value.trim();
@@ -2032,6 +2039,9 @@ function setTreeOrientation(orientation) {
             : (window.lastMatchedResults || null);
         getCurrentDrawFn()(currentTargetTree, svgMatchResults, svgMode, pattern);
         applyZoom();
+        if (orientation === 'vertical') {
+            scrollVerticalTreeToRoot();
+        }
     }
 }
 
@@ -2906,9 +2916,25 @@ function scrollTreeViewToNodeId(nodeId) {
     const meta = nodeIdToRenderMeta.get(nodeId);
     if (!meta) return;
 
-    meta.rectEl.scrollIntoView({
-        block: 'center',
-        inline: 'center',
+    const treeVizArea = document.querySelector('.tree-viz-area');
+    if (!treeVizArea) return;
+    const areaRect = treeVizArea.getBoundingClientRect();
+    const nodeRect = meta.rectEl.getBoundingClientRect();
+    // bodyのCSS zoomを考慮し、表示座標をスクロール座標へ戻して計算する。
+    const scaleX = areaRect.width / treeVizArea.offsetWidth || 1;
+    const scaleY = areaRect.height / treeVizArea.offsetHeight || 1;
+    const nodeWidth = nodeRect.width / scaleX;
+    const nodeHeight = nodeRect.height / scaleY;
+    const targetLeft = treeVizArea.scrollLeft
+        + (nodeRect.left - areaRect.left) / scaleX
+        - (treeVizArea.clientWidth - nodeWidth) / 2;
+    const targetTop = treeVizArea.scrollTop
+        + (nodeRect.top - areaRect.top) / scaleY
+        - (treeVizArea.clientHeight - nodeHeight) / 2;
+
+    treeVizArea.scrollTo({
+        left: Math.max(0, targetLeft),
+        top: Math.max(0, targetTop),
         behavior: 'smooth',
     });
     flashNodeRect(meta.rectEl);
@@ -3057,15 +3083,16 @@ function zoomReset() {
 
 // ツリービジュアライゼーションのフルスクリーン切り替え（各ブラウザAPI対応）
 function toggleFullscreen() {
-    const treeVizArea = document.querySelector('.tree-viz-area');
+    // 操作バーも残すため、スクロール領域ではなくTree Viewタブ全体を全画面化する。
+    const treeVizPanel = document.getElementById('tab-tree-viz');
 
     if (!document.fullscreenElement) {
-        if (treeVizArea.requestFullscreen) {
-            treeVizArea.requestFullscreen();
-        } else if (treeVizArea.webkitRequestFullscreen) {
-            treeVizArea.webkitRequestFullscreen();
-        } else if (treeVizArea.msRequestFullscreen) {
-            treeVizArea.msRequestFullscreen();
+        if (treeVizPanel.requestFullscreen) {
+            treeVizPanel.requestFullscreen();
+        } else if (treeVizPanel.webkitRequestFullscreen) {
+            treeVizPanel.webkitRequestFullscreen();
+        } else if (treeVizPanel.msRequestFullscreen) {
+            treeVizPanel.msRequestFullscreen();
         }
     } else {
         if (document.exitFullscreen) {

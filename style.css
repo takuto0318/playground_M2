@@ -28,13 +28,12 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     width: 125vw;
-    height: auto;
+    height: 125vh;
     min-height: 125vh;
     zoom: 0.8;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 /* ヘッダー */
@@ -83,6 +82,7 @@ header h1 {
     width: 100%;
     height: auto;
     min-height: 0;
+    overflow: hidden;
 }
 
 .left-column,
@@ -93,6 +93,16 @@ header h1 {
     min-width: 0;
     min-height: 0;
     height: 100%;
+}
+
+.left-column {
+    overflow-x: visible;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.right-column {
+    overflow: hidden;
 }
 
 /* 入力セクション */
@@ -953,6 +963,11 @@ textarea::placeholder {
     flex-direction: column;
 }
 
+#tab-tree-viz {
+    min-height: 0;
+    overflow: hidden;
+}
+
 .result-area {
     padding: 1rem;
     overflow-y: auto;
@@ -1196,8 +1211,9 @@ textarea::placeholder {
 
 /* SVGツリー可視化エリア（Tree Viewタブ内） */
 .tree-viz-area {
-    flex: 1;
+    flex: 1 1 0;
     overflow: auto;
+    overscroll-behavior: contain;
     padding: 1rem;
     position: relative;
     min-height: 0;
@@ -1215,6 +1231,23 @@ textarea::placeholder {
 
 .tree-viz-area:fullscreen #tree-svg {
     flex-shrink: 0;
+}
+
+#tab-tree-viz:fullscreen,
+#tab-tree-viz:-webkit-full-screen,
+#tab-tree-viz:-ms-fullscreen {
+    display: flex !important;
+    flex-direction: column;
+    min-height: 0;
+    background: #ffffff;
+}
+
+#tab-tree-viz:fullscreen .tree-viz-area,
+#tab-tree-viz:-webkit-full-screen .tree-viz-area,
+#tab-tree-viz:-ms-fullscreen .tree-viz-area {
+    flex: 1;
+    min-height: 0;
+    padding: 2rem;
 }
 
 .tree-viz-area:-webkit-full-screen {
@@ -1258,21 +1291,21 @@ textarea::placeholder {
     display: block;
 }
 
-/* 向き切替と凡例を、Tree View のスクロール中も残る同一バーに配置 */
+/* 向き・凡例・ズームを、木のスクロール領域外に配置 */
 .tree-viz-fixed-bar {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     gap: 0.75rem;
-    padding: 0.5rem 1rem 0.25rem;
+    padding: 0.45rem 1rem;
     background: var(--bg-elevated, #f8f9fa);
     border-bottom: 1px solid var(--border-color, #dee2e6);
-    position: sticky;
-    top: 0;
-    left: 0;
-    z-index: 12;
-    width: fit-content;
+    position: relative;
+    z-index: 30;
+    width: 100%;
     min-width: 0;
-    max-width: 100%;
+    overflow: visible;
 }
 
 .tree-viz-toolbar {
@@ -1360,6 +1393,11 @@ textarea::placeholder {
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     z-index: 10;
+}
+
+.tree-viz-fixed-bar .zoom-controls {
+    margin-left: auto;
+    box-shadow: none;
 }
 
 .zoom-btn {
@@ -1786,17 +1824,27 @@ textarea::placeholder {
 
 /* レスポンシブデザイン対応（画面幅が狭い場合は1カラムレイアウトに切り替え） */
 @media (max-width: 1024px) {
+    body {
+        height: auto;
+        min-height: 125vh;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
     .container {
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows: auto auto;
         flex: 0 0 auto;
         height: auto;
         min-height: 0;
+        overflow: visible;
     }
 
     .left-column,
     .right-column {
         height: auto;
+        overflow: visible;
+        overscroll-behavior: auto;
     }
 
     .target-section {
@@ -1805,6 +1853,10 @@ textarea::placeholder {
     }
 
     .right-column {
+        min-height: 500px;
+    }
+
+    .result-section {
         min-height: 500px;
     }
 
@@ -1818,6 +1870,11 @@ textarea::placeholder {
 
     .target-section.target-collapsed > :not(.target-section-header) {
         display: none !important;
+    }
+
+    /* 1列表示では木の端からページスクロールへ戻せるようにする。 */
+    .tree-viz-area {
+        overscroll-behavior: auto;
     }
 }
 
