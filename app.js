@@ -339,7 +339,11 @@ function getTargetTreeFromInput(targetStr) {
 
     if (currentTargetSource === 'json') {
         const jsonAst = JSON.parse(targetStr);
-        currentTargetTree = importJsonAstToTree(jsonAst, Tree1, AST_FIELD_IMPORT_OPTIONS);
+        currentTargetTree = JsonAstImport.importJsonAst(
+            jsonAst,
+            Tree1,
+            JSON_AST_IMPORT_OPTIONS
+        );
         return currentTargetTree;
     }
 
@@ -735,6 +739,38 @@ function formatNode(node) {// ノードオブジェクトを受け取り、そ�
     }
 
     return str;
+}
+
+// TreeMatchLibの空ノードは子配列内のnullとして保持される。
+// 描画時だけ「_」の葉として扱い、元の木構造は変更しない。
+let emptyRenderNodeCache = new WeakMap();
+
+function resetEmptyRenderNodeCache() {
+    emptyRenderNodeCache = new WeakMap();
+}
+
+function isEmptyRenderNode(node) {
+    return Boolean(node && node.__treeMatchEmptyRenderNode);
+}
+
+function getRenderableChildNode(parent, index) {
+    const child = parent.NthChildNode(index);
+    if (child !== null) return child;
+
+    let children = emptyRenderNodeCache.get(parent);
+    if (!children) {
+        children = new Map();
+        emptyRenderNodeCache.set(parent, children);
+    }
+    if (!children.has(index)) {
+        children.set(index, {
+            __treeMatchEmptyRenderNode: true,
+            Attr0: () => '_',
+            Attr1: () => null,
+            NumChildren: () => 0,
+        });
+    }
+    return children.get(index);
 }
 
 function getResultRootNode(result) {
@@ -1570,6 +1606,7 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
     nodeIdToRenderMeta = new Map();
     nodeBadgeOffsets   = new Map();
     currentSVGHoverType = null;
+    resetEmptyRenderNodeCache();
 
     // 凡例エリアも空にする
     const legendEl = document.getElementById('svg-match-legend');
@@ -1603,7 +1640,7 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
         const children  = [];
 
         for (let i = 0; i < node.NumChildren(); i++) {
-            children.push(node.NthChildSubtree(i));
+            children.push(getRenderableChildNode(node, i));
         }
 
         maxWidth  = Math.max(maxWidth,  x + nodeWidth);
@@ -1618,8 +1655,10 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
             rect.setAttribute('height', nodeHeight);
             rect.setAttribute('rx', 6);
             svgGroup.appendChild(rect);
-            attachNodePatternInsertHandler(rect, node);
-            attachNodeSourceSelectHandler(rect, node);
+            if (!isEmptyRenderNode(node)) {
+                attachNodePatternInsertHandler(rect, node);
+                attachNodeSourceSelectHandler(rect, node);
+            }
 
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             text.setAttribute('x', nx + nw / 2);
@@ -1637,12 +1676,14 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
         if (children.length === 0) {
             // 葉ノード
             const { rect, text } = makeNodeElements(x, y, nodeWidth);
-            nodeObjectToNodeId.set(node, nodeId);
-            nodeIdToRenderMeta.set(nodeId, {
-                nodeId, nodeObject: node, rectEl: rect, textEl: text,
-                nodeX: x, nodeY: y, nodeWidth, nodeHeight,
-                matchIndexes: [], captureNames: [], isMatchRoot: false
-            });
+            if (!isEmptyRenderNode(node)) {
+                nodeObjectToNodeId.set(node, nodeId);
+                nodeIdToRenderMeta.set(nodeId, {
+                    nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                    nodeX: x, nodeY: y, nodeWidth, nodeHeight,
+                    matchIndexes: [], captureNames: [], isMatchRoot: false
+                });
+            }
             return { width: nodeWidth, center: x + nodeWidth / 2 };
         }
 
@@ -1655,7 +1696,7 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
         children.forEach((child, idx) => {
             // 子の nodeId は「親のパス + "." + 子インデックス」
             const childNodeId = nodeId + '.' + idx;
-            const result = drawNode(child.GetRootNode(), childX, y + levelHeight, level + 1, childNodeId);
+            const result = drawNode(child, childX, y + levelHeight, level + 1, childNodeId);
             childCenters.push(result.center);
             childX += result.width + 20;
             totalWidth += result.width + (idx < children.length - 1 ? 20 : 0);
@@ -1668,12 +1709,14 @@ function drawSVGTree(tree, matchResults, matchMode, patternStr) {
         const { rect, text } = makeNodeElements(parentX, y, nodeWidth);
         text.setAttribute('x', parentCenter); // 中央揃えのため x を上書き
 
-        nodeObjectToNodeId.set(node, nodeId);
-        nodeIdToRenderMeta.set(nodeId, {
-            nodeId, nodeObject: node, rectEl: rect, textEl: text,
-            nodeX: parentX, nodeY: y, nodeWidth, nodeHeight,
-            matchIndexes: [], captureNames: [], isMatchRoot: false
-        });
+        if (!isEmptyRenderNode(node)) {
+            nodeObjectToNodeId.set(node, nodeId);
+            nodeIdToRenderMeta.set(nodeId, {
+                nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                nodeX: parentX, nodeY: y, nodeWidth, nodeHeight,
+                matchIndexes: [], captureNames: [], isMatchRoot: false
+            });
+        }
 
         // 親子を結ぶ線（背面に回るよう先頭へ挿入する）
         childCenters.forEach(childCenter => {
@@ -1743,7 +1786,7 @@ function computeCompactLayout(node, hSep, widthFn) {
     const children = [];
     const childProfiles = [];
     for (let i = 0; i < numChildren; i++) {
-        const child = node.NthChildSubtree(i).GetRootNode();
+        const child = getRenderableChildNode(node, i);
         children.push(child);
         childProfiles.push(computeCompactLayout(child, hSep, widthFn));
     }
@@ -1801,7 +1844,7 @@ function computeCompactLayout(node, hSep, widthFn) {
 function applyXOffsetRecursive(node, dx) {
     node._cX = (node._cX || 0) + dx;
     for (let i = 0; i < node.NumChildren(); i++) {
-        applyXOffsetRecursive(node.NthChildSubtree(i).GetRootNode(), dx);
+        applyXOffsetRecursive(getRenderableChildNode(node, i), dx);
     }
 }
 
@@ -1851,6 +1894,7 @@ function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
     nodeIdToRenderMeta  = new Map();
     nodeBadgeOffsets    = new Map();
     currentSVGHoverType = null;
+    resetEmptyRenderNodeCache();
 
     const legendEl = document.getElementById('svg-match-legend');
     if (legendEl) legendEl.innerHTML = '';
@@ -1898,8 +1942,10 @@ function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
         rect.setAttribute('height', NODE_H);
         rect.setAttribute('rx', 6);
         svgGroup.appendChild(rect);
-        attachNodePatternInsertHandler(rect, node);
-        attachNodeSourceSelectHandler(rect, node);
+        if (!isEmptyRenderNode(node)) {
+            attachNodePatternInsertHandler(rect, node);
+            attachNodeSourceSelectHandler(rect, node);
+        }
 
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         text.setAttribute('x', myCenter);
@@ -1910,16 +1956,18 @@ function drawSVGTreeCompact(tree, matchResults, matchMode, patternStr) {
         svgGroup.appendChild(text);
 
         // 既存 Map に登録（applyMatchColors がこれを参照する）
-        nodeObjectToNodeId.set(node, nodeId);
-        nodeIdToRenderMeta.set(nodeId, {
-            nodeId, nodeObject: node, rectEl: rect, textEl: text,
-            nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
-            matchIndexes: [], captureNames: [], isMatchRoot: false,
-        });
+        if (!isEmptyRenderNode(node)) {
+            nodeObjectToNodeId.set(node, nodeId);
+            nodeIdToRenderMeta.set(nodeId, {
+                nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
+                matchIndexes: [], captureNames: [], isMatchRoot: false,
+            });
+        }
 
         // 子ノードを再帰的に描画し、コネクタ情報を積む
         for (let i = 0; i < node.NumChildren(); i++) {
-            const child    = node.NthChildSubtree(i).GetRootNode();
+            const child    = getRenderableChildNode(node, i);
             const childY   = y + LEVEL_H;
             const childCx  = PADDING.left + (child._cX || 0) + (child._cW || BASE_W) / 2;
             connectorQueue.push({ x1: myCenter, y1: y + NODE_H, x2: childCx, y2: childY });
@@ -2471,6 +2519,7 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
     nodeIdToRenderMeta  = new Map();
     nodeBadgeOffsets    = new Map();
     currentSVGHoverType = null;
+    resetEmptyRenderNodeCache();
 
     const legendEl = document.getElementById('svg-match-legend');
     if (legendEl) legendEl.innerHTML = '';
@@ -2498,7 +2547,7 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
     (function assignRow(node) {
         node._row = rowCursor++;
         for (let i = 0; i < node.NumChildren(); i++) {
-            assignRow(node.NthChildSubtree(i).GetRootNode());
+            assignRow(getRenderableChildNode(node, i));
         }
     })(rootNode);
 
@@ -2525,8 +2574,10 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
             rect.setAttribute('height', NODE_H);
             rect.setAttribute('rx', 6);
             svgGroup.appendChild(rect);
-            attachNodePatternInsertHandler(rect, node);
-            attachNodeSourceSelectHandler(rect, node);
+            if (!isEmptyRenderNode(node)) {
+                attachNodePatternInsertHandler(rect, node);
+                attachNodeSourceSelectHandler(rect, node);
+            }
 
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             text.setAttribute('x', x + w / 2);
@@ -2536,19 +2587,21 @@ function drawSVGTreeCompactHorizontal(tree, matchResults, matchMode, patternStr)
             text.textContent = formatNode(node);
             svgGroup.appendChild(text);
 
-            nodeObjectToNodeId.set(node, nodeId);
-            nodeIdToRenderMeta.set(nodeId, {
-                nodeId, nodeObject: node, rectEl: rect, textEl: text,
-                nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
-                matchIndexes: [], captureNames: [], isMatchRoot: false,
-            });
+            if (!isEmptyRenderNode(node)) {
+                nodeObjectToNodeId.set(node, nodeId);
+                nodeIdToRenderMeta.set(nodeId, {
+                    nodeId, nodeObject: node, rectEl: rect, textEl: text,
+                    nodeX: x, nodeY: y, nodeWidth: w, nodeHeight: NODE_H,
+                    matchIndexes: [], captureNames: [], isMatchRoot: false,
+                });
+            }
 
             if (node.NumChildren() > 0) {
                 // 縦バーの x 座標: 子の左端より INDENT_X/4 だけ左（アウトライン棒の位置）
                 const barX = PADDING.left + (depth + 1) * INDENT_X - Math.round(INDENT_X / 4);
                 const childLeftX = PADDING.left + (depth + 1) * INDENT_X;
                 for (let i = 0; i < node.NumChildren(); i++) {
-                    const child = node.NthChildSubtree(i).GetRootNode();
+                    const child = getRenderableChildNode(node, i);
                     const childCenterY = PADDING.top + child._row * ROW_H + NODE_H / 2;
                     connectorQueue.push({ barX, fromY: myCenterY, toY: childCenterY, toX: childLeftX });
                     drawNodeH(child, depth + 1, nodeId + '.' + i);
@@ -4202,6 +4255,11 @@ function setupDebugMode(result, pattern, targetTree) {
 let parsedAST = null;
 let convertedTree = null;
 
+// JSON AST入力専用の設定。Code -> JavaScriptは既存の変換処理を維持する。
+// keys.secondaryを省略した初期設定では、従来どおり
+// name/value/operator/kindのうち最初に存在する値がSecondaryになる。
+const JSON_AST_IMPORT_OPTIONS = JsonAstImport.cloneOptions();
+
 /**
  * Programmatically switch to a tab
  */
@@ -4339,31 +4397,10 @@ function convertASTToTreeMatchLib(astNode) {
 
 // TreeMatchLib のツリーをパターン文字列に変換する関数。これで変換したツリーを人間が読める形で表示できるようになる
 function treeToPatternString(tree) {
-    function nodeToString(node, depth = 0) {
-        if (!node) return '';
-
-        let result = nodeToPatternAtom(node, { includeValue: true });
-
-        const childCount = node.NumChildren();
-        if (childCount > 0) {
-            const children = [];
-            for (let i = 0; i < childCount; i++) {
-                const child = node.NthChildSubtree(i).GetRootNode();
-                children.push(nodeToString(child, depth + 1));
-            }
-
-            const indent = '  '.repeat(depth + 1);
-            if (children.length === 1) {
-                result += ' > ' + children[0];
-            } else {
-                result += ' >\n' + indent + '(' + children.join(')\n' + indent + '(') + ')';
-            }
-        }
-
-        return result;
-    }
-
-    return nodeToString(tree.GetRootNode());
+    return JsonAstImport.treeToPatternString(
+        tree,
+        node => nodeToPatternAtom(node, { includeValue: true })
+    );
 }
 
 function setupCodeImport() {// コードインポート機能の初期化。これでコード入力から AST 変換、ツリー表示までの一連の流れをセットアップできるようになる
@@ -4531,16 +4568,15 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
 
                     // console.log('Loaded JSON:', jsonData);
 
-                    // 最低限 ESTree 形式かを確認する
-                    if (!jsonData.type) {
-                        throw new Error('Invalid AST: Missing "type" property. Expected ESTree format.');
-                    }
-
                     // parsedAST として保持する
                     parsedAST = jsonData;
 
                     // TreeMatchLib 用の形式へ変換する
-                    const rootNode = convertASTToTreeMatchLib(parsedAST);
+                    const rootNode = JsonAstImport.importJsonAstNode(
+                        parsedAST,
+                        Tree1,
+                        JSON_AST_IMPORT_OPTIONS
+                    );
                     convertedTree = new Tree1(new Tree1.BoxClass(rootNode));
                     // console.log('Converted Tree:', convertedTree);
 
