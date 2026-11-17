@@ -72,7 +72,7 @@
             <!-- ターゲットツリー入力セクション
                  マッチ対象となるツリー構造を TreeConstruct 形式で入力する欄 -->
             <section class="input-section target-section">
-                <div class="section-header">
+                <div class="section-header target-section-header">
                     <div class="target-header-left">
                         <label for="target-input">TARGET</label>
                         <div class="target-mode-toggle">
@@ -94,6 +94,11 @@
                             </div>
                         </div>
                     </div>
+                    <button id="target-collapse-btn" class="btn-icon target-collapse-btn" type="button" aria-expanded="true" aria-controls="target-input" title="Collapse TARGET">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path d="M3 6l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
                 </div>
                 <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
                 <div id="json-cst-inline-panel" class="json-cst-inline-panel" hidden>

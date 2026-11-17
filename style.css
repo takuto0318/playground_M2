@@ -17,6 +17,9 @@
     --border-color: #e2e8f0;
     --code-bg: #f8fafc;
     --label-color: #3b82f6;
+    --layout-column-gap: 2rem;
+    --left-column-max-width: 800px;
+    --target-min-height: 15rem;
 }
 
 body {
@@ -25,12 +28,13 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     width: 125vw;
-    height: 125vh;
+    height: auto;
     min-height: 125vh;
     zoom: 0.8;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 /* ヘッダー */
@@ -71,8 +75,10 @@ header h1 {
     margin: 0 auto;
     padding: 0.25rem 2rem;
     display: grid;
-    grid-template-columns: minmax(360px, 0.75fr) minmax(0, 1.45fr);
-    gap: 2rem;
+    grid-template-columns:
+        minmax(360px, min(var(--left-column-max-width), calc(34.091% - 0.682rem)))
+        minmax(0, 1fr);
+    gap: var(--layout-column-gap);
     flex: 1 1 auto;
     width: 100%;
     height: auto;
@@ -102,10 +108,10 @@ header h1 {
 }
 
 .target-section {
-    flex: 1;
+    flex: 1 0 var(--target-min-height);
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: var(--target-min-height);
 }
 
 .section-header {
@@ -400,9 +406,11 @@ textarea::placeholder {
 
 .target-editor-wrap {
     position: relative;
-    flex: 1;
-    min-height: 0;
+    flex: 1 1 auto;
+    min-height: 6.2rem;
     display: flex;
+    overflow: hidden;
+    background: var(--code-bg);
 }
 
 #target-highlight-layer,
@@ -434,6 +442,9 @@ textarea::placeholder {
     position: relative;
     z-index: 2;
     flex: 1;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
     background: transparent;
 }
 
@@ -452,6 +463,20 @@ textarea::placeholder {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    min-width: 0;
+}
+
+.target-collapse-btn {
+    display: none;
+    flex: 0 0 auto;
+}
+
+.target-collapse-btn svg {
+    transition: transform 0.15s ease;
+}
+
+.target-section.target-collapsed .target-collapse-btn svg {
+    transform: rotate(-90deg);
 }
 
 /* Target Mode セグメントボタン（Affordance UI） */
@@ -1722,11 +1747,37 @@ textarea::placeholder {
 /* レスポンシブデザイン対応（画面幅が狭い場合は1カラムレイアウトに切り替え） */
 @media (max-width: 1024px) {
     .container {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        flex: 0 0 auto;
+        height: auto;
+        min-height: 0;
+    }
+
+    .left-column,
+    .right-column {
+        height: auto;
+    }
+
+    .target-section {
+        flex: 0 0 auto;
+        min-height: var(--target-min-height);
     }
 
     .right-column {
         min-height: 500px;
+    }
+
+    .target-collapse-btn {
+        display: flex;
+    }
+
+    .target-section.target-collapsed {
+        min-height: 0;
+    }
+
+    .target-section.target-collapsed > :not(.target-section-header) {
+        display: none !important;
     }
 }
 

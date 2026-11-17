@@ -151,6 +151,7 @@ function init() {
         item.addEventListener('click', handleJsonTargetTypeSelect);
     });
     setupJsonCstImport();
+    setupResponsiveTarget();
 
     // 外側をクリックしたらドロップダウンを閉じる
     // 開きっぱなしになると操作しづらいため
@@ -2043,6 +2044,41 @@ const TARGET_SOURCE_HELP = {
     json:          'type キーを持つ JSON AST を入力すると、__Field / __ListField 付きの木へ変換します。',
     'json-cst':    '',
 };
+
+function setupResponsiveTarget() {
+    const section = document.querySelector('.target-section');
+    const button = document.getElementById('target-collapse-btn');
+    if (!section || !button) return;
+
+    const singleColumnQuery = window.matchMedia('(max-width: 1024px)');
+    let collapsedInSingleColumn = false;
+
+    const update = () => {
+        const isSingleColumn = singleColumnQuery.matches;
+        const collapsed = isSingleColumn && collapsedInSingleColumn;
+        section.classList.toggle('target-collapsed', collapsed);
+        button.setAttribute('aria-expanded', String(!collapsed));
+        button.title = collapsed ? 'Expand TARGET' : 'Collapse TARGET';
+    };
+
+    button.addEventListener('click', () => {
+        if (!singleColumnQuery.matches) return;
+        collapsedInSingleColumn = !collapsedInSingleColumn;
+        update();
+    });
+
+    const handleLayoutChange = event => {
+        if (!event.matches) collapsedInSingleColumn = false;
+        update();
+    };
+    if (typeof singleColumnQuery.addEventListener === 'function') {
+        singleColumnQuery.addEventListener('change', handleLayoutChange);
+    } else {
+        singleColumnQuery.addListener(handleLayoutChange);
+    }
+
+    update();
+}
 
 function closeTargetMenu(id) {
     const menu = document.getElementById(id);
