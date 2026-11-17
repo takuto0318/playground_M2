@@ -2060,7 +2060,7 @@ function setupResponsiveTarget() {
     const button = document.getElementById('target-collapse-btn');
     if (!section || !button) return;
 
-    const singleColumnQuery = window.matchMedia('(max-width: 1024px)');
+    const singleColumnQuery = window.matchMedia('(max-width: 820px)');
     let collapsedInSingleColumn = false;
 
     const update = () => {

@@ -1823,7 +1823,31 @@ textarea::placeholder {
 }
 
 /* レスポンシブデザイン対応（画面幅が狭い場合は1カラムレイアウトに切り替え） */
-@media (max-width: 1024px) {
+@media (820px < width <= 1024px) {
+    .target-section-header {
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+
+    .target-header-left {
+        gap: 0.4rem;
+    }
+
+    .target-mode-toggle > .target-mode-btn,
+    .target-mode-toggle > .target-mode-code-wrap,
+    .target-mode-toggle > .target-mode-json-wrap {
+        width: 80px;
+        flex-basis: 80px;
+    }
+
+    .target-mode-btn {
+        padding-right: 4px;
+        padding-left: 4px;
+        font-size: 0.65rem;
+    }
+}
+
+@media (max-width: 820px) {
     body {
         height: auto;
         min-height: 125vh;
