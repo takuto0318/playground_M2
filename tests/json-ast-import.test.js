@@ -22,6 +22,50 @@ function childByField(root, fieldName) {
     return root.ChildNodeList().find(node => node && node.Attr1() === fieldName);
 }
 
+// Settings use the same trimmed names for conversion, persistence, summaries,
+// and sample generation. Whitespace inside a key remains significant.
+{
+    const normalized = JsonAstImport.validateOptions({
+        keys: {
+            primary: '  node kind  ',
+            secondary: '  display label  ',
+        },
+        fieldNodeName: '  Field Slot  ',
+        listFieldNodeName: '  List Slot  ',
+    });
+    assert.equal(normalized.keys.primary, 'node kind');
+    assert.equal(normalized.keys.secondary, 'display label');
+    assert.equal(normalized.fieldNodeName, 'Field Slot');
+    assert.equal(normalized.listFieldNodeName, 'List Slot');
+
+    const root = rootOf({
+        'node kind': 'Leaf',
+        'display label': 'x',
+    }, normalized);
+    assert.equal(root.Attr0(), 'Leaf');
+    assert.equal(root.Attr1(), 'x');
+}
+
+// Options UI sequence: Auto -> Key -> None -> Auto, followed by custom
+// Primary/Secondary keys. These are the exact option objects passed by the UI.
+{
+    const input = { type: 'Identifier', name: 'x', label: 'y' };
+    assert.equal(rootOf(input).Attr1(), 'x');
+    assert.equal(rootOf(input, {
+        keys: { primary: 'type', secondary: 'label' },
+    }).Attr1(), 'y');
+    assert.equal(rootOf(input, {
+        keys: { primary: 'type', secondary: '' },
+    }).Attr1(), null);
+    assert.equal(rootOf(input).Attr1(), 'x');
+
+    const configured = rootOf({ kind: 'Leaf', label: 'z' }, {
+        keys: { primary: 'kind', secondary: 'label' },
+    });
+    assert.equal(configured.Attr0(), 'Leaf');
+    assert.equal(configured.Attr1(), 'z');
+}
+
 // Existing JSON AST defaults: type is Primary and the first representative
 // key (name/value/operator/kind) is Secondary.
 {
@@ -209,6 +253,142 @@ assert.throws(
         },
     }),
     error => error.path === '$.items[1]' && /node-list item/.test(error.message)
+);
+
+// Detection methods classify the same properties through rules, automatic
+// detection, or a user function without changing conversion semantics.
+{
+    const input = {
+        type: 'Root',
+        child: { type: 'Leaf' },
+        items: [{ type: 'A' }, null, { type: 'B' }],
+        ignoredMeta: 1,
+        count: 3,
+    };
+    const autoRules = rootOf(input, {
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: 'auto-rules',
+            rules: [{
+                match: 'regex',
+                pattern: '^ignored',
+                classification: 'ignore',
+            }],
+        }),
+    });
+    assert.equal(childByField(autoRules, 'child').Attr0(), '__Field');
+    assert.equal(childByField(autoRules, 'items').NthChildNode(1), null);
+    assert.equal(autoRules.GetAttribute('ignoredMeta'), null);
+    assert.equal(autoRules.GetAttribute('count'), 3);
+
+    const rulesOnly = rootOf(input, {
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: 'rules-only',
+            unmatched: 'ignore',
+            rules: [
+                { match: 'exact', pattern: 'child', classification: 'node' },
+                { match: 'glob', pattern: 'item*', classification: 'node-list' },
+                { match: 'exact', pattern: 'count', classification: 'attribute' },
+            ],
+        }),
+    });
+    assert.equal(childByField(rulesOnly, 'child').Attr0(), '__Field');
+    assert.equal(childByField(rulesOnly, 'items').NthChildNode(1), null);
+    assert.equal(rulesOnly.GetAttribute('count'), 3);
+    assert.equal(rulesOnly.GetAttribute('ignoredMeta'), null);
+
+    const custom = rootOf(input, {
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: 'custom',
+            customFunction: `(node, key) => {
+                if (key === 'child') return 'node';
+                if (key === 'items') return 'node-list';
+                if (key === 'ignoredMeta') return 'ignore';
+                return 'attribute';
+            }`,
+        }),
+    });
+    assert.equal(childByField(custom, 'child').Attr0(), '__Field');
+    assert.equal(childByField(custom, 'items').NthChildNode(1), null);
+    assert.equal(custom.GetAttribute('count'), 3);
+    assert.equal(custom.GetAttribute('ignoredMeta'), null);
+}
+
+// The first matching rule wins, and structural node names are configurable.
+{
+    const root = rootOf({
+        type: 'Root',
+        item: { type: 'Leaf' },
+        items: [{ type: 'A' }],
+    }, {
+        fieldNodeName: 'FieldSlot',
+        listFieldNodeName: 'ListSlot',
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: 'auto-rules',
+            rules: [
+                { match: 'exact', pattern: 'item', classification: 'node' },
+                { match: 'glob', pattern: 'item*', classification: 'ignore' },
+            ],
+        }),
+    });
+    assert.equal(childByField(root, 'item').Attr0(), 'FieldSlot');
+    assert.equal(childByField(root, 'items'), undefined);
+}
+
+// A custom structural-node name may be identical to a real AST node type.
+// Structural wrappers are identified by node identity, not by their name, so
+// an Identifier from Code/CST/TreeConstruct is not affected by AST settings.
+{
+    const root = rootOf({
+        type: 'Root',
+        child: { type: 'Identifier', name: 'x' },
+        children: [{ type: 'Identifier', name: 'y' }],
+    }, {
+        fieldNodeName: 'Identifier',
+        listFieldNodeName: 'Identifier',
+    });
+    const field = childByField(root, 'child');
+    const listField = childByField(root, 'children');
+    const fieldValue = field.NthChildNode(0);
+    const listValue = listField.NthChildNode(0);
+
+    assert.equal(field.Attr0(), 'Identifier');
+    assert.equal(fieldValue.Attr0(), 'Identifier');
+    assert.equal(JsonAstImport.getStructuralNodeKind(field), 'field');
+    assert.equal(JsonAstImport.getStructuralNodeKind(listField), 'list-field');
+    assert.equal(JsonAstImport.isStructuralNode(fieldValue), false);
+    assert.equal(JsonAstImport.isStructuralNode(listValue), false);
+
+    const ordinaryIdentifier = TreeConstruct(TestTree, 'Identifier#x').Node();
+    assert.equal(JsonAstImport.isStructuralNode(ordinaryIdentifier), false);
+}
+
+// Invalid settings fail before conversion. Runtime classifier failures retain
+// the property path, as do invalid values forced into a node-list.
+assert.throws(
+    () => JsonAstImport.createPropertyClassifier({
+        method: 'auto-rules',
+        rules: [{ match: 'regex', pattern: '[', classification: 'node' }],
+    }),
+    error => error.path === '$options.rules[0].pattern' && /Invalid regex/.test(error.message)
+);
+assert.throws(
+    () => JsonAstImport.createPropertyClassifier({
+        method: 'custom',
+        customFunction: '(node, key) => {',
+    }),
+    error => error.path === '$options.customFunction' && /Invalid custom function/.test(error.message)
+);
+assert.throws(
+    () => rootOf({ type: 'Root', items: [] }, {
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: 'custom',
+            customFunction: `(node, key) => {
+                if (key === 'items') throw new Error('test failure');
+                return 'attribute';
+            }`,
+        }),
+    }),
+    error => error.path === '$.items' && /test failure/.test(error.message)
 );
 
 // Pattern-string serialization keeps TreeMatchLib empty children as "_" so

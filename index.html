@@ -101,6 +101,16 @@
                     </button>
                 </div>
                 <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
+                <div id="json-ast-inline-panel" class="json-cst-inline-panel" hidden>
+                    <div class="json-cst-options-summary-row">
+                        <div class="json-cst-options-summary" aria-label="Current JSON AST options">
+                            <span>Primary <code id="json-ast-summary-primary">type</code></span>
+                            <span>Secondary <code id="json-ast-summary-secondary">Auto</code></span>
+                            <span>Detection <code id="json-ast-summary-detection">Auto + Rules</code></span>
+                        </div>
+                        <button id="json-ast-options-btn" class="action-btn secondary json-cst-options-btn" type="button" aria-expanded="false" aria-controls="json-ast-options-modal">Options...</button>
+                    </div>
+                </div>
                 <div id="json-cst-inline-panel" class="json-cst-inline-panel" hidden>
                     <div class="json-cst-options-summary-row">
                         <div class="json-cst-options-summary" aria-label="Current JSON CST options">
@@ -115,6 +125,12 @@
                 <div class="target-editor-wrap">
                     <pre id="target-highlight-layer" aria-hidden="true"></pre>
                     <textarea id="target-input" placeholder="A > B C D" rows="8" spellcheck="false"></textarea>
+                </div>
+                <div id="json-ast-inline-footer" class="json-cst-inline-footer" hidden>
+                    <div class="json-cst-inline-actions">
+                        <button id="json-ast-sample-btn" class="action-btn secondary" type="button">Sample</button>
+                        <button id="json-ast-clear-btn" class="action-btn secondary" type="button">Clear</button>
+                    </div>
                 </div>
                 <div id="json-cst-inline-footer" class="json-cst-inline-footer" hidden>
                     <p id="json-cst-error" class="json-cst-error" role="alert" hidden></p>
@@ -541,6 +557,94 @@ function add(a, b) {
             </section>
         </div>
     </main>
+
+    <div id="json-ast-options-modal" class="json-cst-options-modal" hidden>
+        <div class="json-cst-options-dialog" role="dialog" aria-modal="true" aria-labelledby="json-ast-options-title">
+            <div class="json-cst-options-dialog-header">
+                <h2 id="json-ast-options-title">JSON AST Options</h2>
+                <button id="json-ast-options-close-btn" class="json-cst-options-close-btn" type="button" aria-label="Close">&times;</button>
+            </div>
+            <div class="json-cst-settings">
+                <div class="json-cst-setting-row json-cst-setting-head">
+                    <span>Item</span>
+                    <span>Setting</span>
+                    <span>Key</span>
+                </div>
+                <label class="json-cst-setting-row">
+                    <span>Primary <strong>*</strong></span>
+                    <input id="json-ast-primary-key" type="text" value="type">
+                    <span class="json-cst-fixed-note">Required</span>
+                </label>
+                <label class="json-cst-setting-row">
+                    <span>Secondary</span>
+                    <select id="json-ast-secondary-mode">
+                        <option value="auto" selected>Auto</option>
+                        <option value="key">Key</option>
+                        <option value="none">None</option>
+                    </select>
+                    <input id="json-ast-secondary-key" type="text" value="name" aria-label="Secondary key" hidden>
+                </label>
+            </div>
+            <div class="json-ast-detection-settings">
+                <label class="json-ast-option-line">
+                    <span>Detection method</span>
+                    <select id="json-ast-detection-method">
+                        <option value="auto-rules" selected>Auto + Rules</option>
+                        <option value="rules-only">Rules only</option>
+                        <option value="custom">Custom function</option>
+                    </select>
+                </label>
+                <section id="json-ast-rules-section" class="json-ast-rules-section">
+                    <div class="json-ast-subsection-header">
+                        <div>
+                            <strong>Property rules</strong>
+                            <small>Rules apply to JSON property names.</small>
+                        </div>
+                        <button id="json-ast-add-rule-btn" class="action-btn secondary" type="button">Add rule</button>
+                    </div>
+                    <p class="json-ast-rules-help">
+                        Checked from top to bottom; the first match is used. In Auto + Rules,
+                        unmatched properties are detected automatically.<br>
+                        Example: <code>Exact / children / node-list</code>
+                    </p>
+                    <div class="json-ast-rule-head" aria-hidden="true">
+                        <span>Match</span>
+                        <span>Pattern</span>
+                        <span>Classify as</span>
+                        <span></span>
+                    </div>
+                    <div id="json-ast-rules-list"></div>
+                    <label id="json-ast-unmatched-row" class="json-ast-option-line" hidden>
+                        <span>Unmatched</span>
+                        <select id="json-ast-unmatched">
+                            <option value="attribute" selected>attribute</option>
+                            <option value="ignore">ignore</option>
+                        </select>
+                    </label>
+                </section>
+                <section id="json-ast-custom-section" class="json-ast-custom-section" hidden>
+                    <label for="json-ast-custom-function">Property classifier <code>(node, key) =&gt; ...</code></label>
+                    <textarea id="json-ast-custom-function" rows="7" spellcheck="false"></textarea>
+                    <small>Return attribute, node, node-list, or ignore.</small>
+                </section>
+                <div class="json-ast-structure-settings">
+                    <label class="json-ast-option-line">
+                        <span>Field node name</span>
+                        <input id="json-ast-field-node-name" type="text" value="__Field">
+                    </label>
+                    <label class="json-ast-option-line">
+                        <span>List field node name</span>
+                        <input id="json-ast-list-field-node-name" type="text" value="__ListField">
+                    </label>
+                </div>
+            </div>
+            <p id="json-ast-options-error" class="json-cst-error" role="alert" hidden></p>
+            <div class="json-cst-options-dialog-actions">
+                <button id="json-ast-options-cancel-btn" class="action-btn secondary" type="button">Cancel</button>
+                <button id="json-ast-options-apply-btn" class="action-btn primary" type="button">Apply</button>
+            </div>
+        </div>
+    </div>
 
     <div id="json-cst-options-modal" class="json-cst-options-modal" hidden>
         <div class="json-cst-options-dialog" role="dialog" aria-modal="true" aria-labelledby="json-cst-options-title">

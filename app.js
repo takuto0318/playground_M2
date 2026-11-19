@@ -34,6 +34,23 @@ let currentTargetTree = null;
 // TARGET 欄の入力形式。TreeConstruct 直接入力か、JavaScript コード入力かを区別する。
 let currentTargetSource = 'treeconstruct';
 let currentTargetCodeLang = 'javascript';
+const DEFAULT_JSON_AST_CUSTOM_FUNCTION = `(node, key) => {
+    if (key === 'children') return 'node-list';
+    return 'attribute';
+}`;
+const CODE_JSON_AST_IMPORT_OPTIONS = JsonAstImport.cloneOptions();
+let currentJsonAstSettings = {
+    primaryKey: 'type',
+    secondaryMode: 'auto',
+    secondaryKey: 'name',
+    detectionMethod: 'auto-rules',
+    rules: [],
+    unmatched: 'attribute',
+    customFunction: DEFAULT_JSON_AST_CUSTOM_FUNCTION,
+    fieldNodeName: '__Field',
+    listFieldNodeName: '__ListField',
+};
+let currentJsonAstImportOptions = buildJsonAstImportOptions(currentJsonAstSettings);
 let currentJsonCstImportOptions = JsonCstImport.cloneOptions();
 let currentJsonCstTree = null;
 
@@ -150,6 +167,7 @@ function init() {
     document.querySelectorAll('.target-json-type-item').forEach(item => {
         item.addEventListener('click', handleJsonTargetTypeSelect);
     });
+    setupJsonAstImport();
     setupJsonCstImport();
     setupResponsiveTarget();
 
@@ -173,6 +191,7 @@ function init() {
             hideNodeContextMenu();
             closeTargetMenu('target-code-lang-menu');
             closeTargetMenu('target-json-type-menu');
+            closeJsonAstOptionsModal();
             closeJsonCstOptionsModal();
         }
     });
@@ -342,7 +361,7 @@ function getTargetTreeFromInput(targetStr) {
         currentTargetTree = JsonAstImport.importJsonAst(
             jsonAst,
             Tree1,
-            JSON_AST_IMPORT_OPTIONS
+            currentJsonAstImportOptions
         );
         return currentTargetTree;
     }
@@ -891,8 +910,12 @@ function formatPatternAttrValue(node) {
 }
 
 function isStructuralFieldNode(node) {
+    if (JsonAstImport.isStructuralNode(node)) return true;
+
     const type = node?.Attr0?.();
-    return type === '__Field' || type === '__ListField' || type === '__Null';
+    return type === '__Field'
+        || type === '__ListField'
+        || type === '__Null';
 }
 
 function formatPatternNodeType(type) {
@@ -2143,27 +2166,43 @@ function closeTargetMenu(id) {
     if (menu) menu.style.display = 'none';
 }
 
+function setJsonAstPanelVisible(visible) {
+    const panel = document.getElementById('json-ast-inline-panel');
+    const footer = document.getElementById('json-ast-inline-footer');
+    const targetSection = targetInput.closest('.target-section');
+    if (panel) panel.hidden = !visible;
+    if (footer) footer.hidden = !visible;
+    if (targetSection) targetSection.classList.toggle('json-ast-mode', visible);
+    if (!visible) closeJsonAstOptionsModal();
+}
+
 function setJsonCstPanelVisible(visible) {
     const panel = document.getElementById('json-cst-inline-panel');
     const footer = document.getElementById('json-cst-inline-footer');
     const targetSection = targetInput.closest('.target-section');
-    const helpElement = document.getElementById('target-source-help');
     if (panel) panel.hidden = !visible;
     if (footer) footer.hidden = !visible;
     if (targetSection) targetSection.classList.toggle('json-cst-mode', visible);
-    if (helpElement) helpElement.hidden = visible;
     if (!visible) closeJsonCstOptionsModal();
+}
 
+function updateTargetInputPresentation(source) {
     if (!targetInput.dataset.defaultPlaceholder) {
         targetInput.dataset.defaultPlaceholder = targetInput.placeholder;
     }
-    targetInput.placeholder = visible
-        ? '{"name":"Root","child":[]}'
-        : targetInput.dataset.defaultPlaceholder;
+    if (source === 'json') {
+        targetInput.placeholder = '{"type":"Identifier","name":"x"}';
+    } else if (source === 'json-cst') {
+        targetInput.placeholder = '{"name":"Root","child":[]}';
+    } else {
+        targetInput.placeholder = targetInput.dataset.defaultPlaceholder;
+    }
 
     // JSON入力中はCodeモード用の背面ハイライトを表示しない。
     if (targetHighlightLayer) {
-        targetHighlightLayer.style.display = visible ? 'none' : '';
+        targetHighlightLayer.style.display = source === 'json' || source === 'json-cst'
+            ? 'none'
+            : '';
     }
 }
 
@@ -2178,8 +2217,13 @@ function setActiveTargetSource(source) {
     });
 
     const helpEl = document.getElementById('target-source-help');
-    if (helpEl) helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
+    if (helpEl) {
+        helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
+        helpEl.hidden = source === 'json' || source === 'json-cst';
+    }
+    setJsonAstPanelVisible(source === 'json');
     setJsonCstPanelVisible(source === 'json-cst');
+    updateTargetInputPresentation(source);
 }
 
 function handleCodeLangSelect(e) {
@@ -2201,13 +2245,16 @@ function handleCodeLangSelect(e) {
 
     const helpEl = document.getElementById('target-source-help');
     if (helpEl) {
+        helpEl.hidden = false;
         helpEl.textContent = label === 'JavaScript'
             ? TARGET_SOURCE_HELP.code
             : label === 'C'
             ? TARGET_SOURCE_HELP.c
             : `${label} code target mode is not implemented yet.`;
     }
+    setJsonAstPanelVisible(false);
     setJsonCstPanelVisible(false);
+    updateTargetInputPresentation('code');
 
     executeMatch();
 }
@@ -2264,6 +2311,318 @@ function handleJsonTargetTypeSelect(e) {
 
     const jsonBtn = document.getElementById('target-json-mode-btn');
     if (jsonBtn) jsonBtn.textContent = 'JSON AST ▼';
+}
+
+function cloneJsonAstSettings(settings = currentJsonAstSettings) {
+    return {
+        primaryKey: settings.primaryKey,
+        secondaryMode: settings.secondaryMode,
+        secondaryKey: settings.secondaryKey,
+        detectionMethod: settings.detectionMethod,
+        rules: settings.rules.map(rule => ({ ...rule })),
+        unmatched: settings.unmatched,
+        customFunction: settings.customFunction,
+        fieldNodeName: settings.fieldNodeName,
+        listFieldNodeName: settings.listFieldNodeName,
+    };
+}
+
+function normalizeJsonAstSettings(settings) {
+    const normalized = cloneJsonAstSettings(settings);
+    const keys = { primary: normalized.primaryKey };
+    if (normalized.secondaryMode === 'key') {
+        if (!normalized.secondaryKey.trim()) {
+            throw new Error('Secondary key is required when Key is selected.');
+        }
+        keys.secondary = normalized.secondaryKey;
+    } else if (normalized.secondaryMode === 'none') {
+        keys.secondary = '';
+    }
+
+    const normalizedOptions = JsonAstImport.validateOptions({
+        keys,
+        fieldNodeName: normalized.fieldNodeName,
+        listFieldNodeName: normalized.listFieldNodeName,
+    });
+    normalized.primaryKey = normalizedOptions.keys.primary;
+    normalized.secondaryKey = normalized.secondaryMode === 'key'
+        ? normalizedOptions.keys.secondary
+        : normalized.secondaryKey.trim();
+    normalized.fieldNodeName = normalizedOptions.fieldNodeName;
+    normalized.listFieldNodeName = normalizedOptions.listFieldNodeName;
+    return normalized;
+}
+
+function buildJsonAstImportOptions(settings) {
+    const normalized = normalizeJsonAstSettings(settings);
+    const keys = { primary: normalized.primaryKey };
+    if (normalized.secondaryMode === 'key') {
+        keys.secondary = normalized.secondaryKey;
+    } else if (normalized.secondaryMode === 'none') {
+        keys.secondary = '';
+    }
+
+    return JsonAstImport.validateOptions({
+        keys,
+        fieldNodeName: normalized.fieldNodeName,
+        listFieldNodeName: normalized.listFieldNodeName,
+        classifyProperty: JsonAstImport.createPropertyClassifier({
+            method: normalized.detectionMethod,
+            rules: normalized.rules,
+            unmatched: normalized.unmatched,
+            customFunction: normalized.customFunction,
+        }),
+    });
+}
+
+function getJsonAstSettingsFromDialog() {
+    const rules = Array.from(document.querySelectorAll('#json-ast-rules-list .json-ast-rule-row'))
+        .map(row => ({
+            match: row.querySelector('.json-ast-rule-match').value,
+            pattern: row.querySelector('.json-ast-rule-pattern').value,
+            classification: row.querySelector('.json-ast-rule-classification').value,
+        }));
+
+    return {
+        primaryKey: document.getElementById('json-ast-primary-key').value,
+        secondaryMode: document.getElementById('json-ast-secondary-mode').value,
+        secondaryKey: document.getElementById('json-ast-secondary-key').value,
+        detectionMethod: document.getElementById('json-ast-detection-method').value,
+        rules,
+        unmatched: document.getElementById('json-ast-unmatched').value,
+        customFunction: document.getElementById('json-ast-custom-function').value,
+        fieldNodeName: document.getElementById('json-ast-field-node-name').value,
+        listFieldNodeName: document.getElementById('json-ast-list-field-node-name').value,
+    };
+}
+
+function updateJsonAstSecondaryKeyVisibility(focusKey = false) {
+    const mode = document.getElementById('json-ast-secondary-mode').value;
+    const keyInput = document.getElementById('json-ast-secondary-key');
+    const visible = mode === 'key';
+    keyInput.hidden = !visible;
+    keyInput.disabled = !visible;
+    if (visible && focusKey) keyInput.focus();
+}
+
+function createJsonAstRuleRow(rule = {}) {
+    const row = document.createElement('div');
+    row.className = 'json-ast-rule-row';
+    row.innerHTML = `
+        <select class="json-ast-rule-match" aria-label="Rule matching method">
+            <option value="exact">Exact</option>
+            <option value="glob">Glob</option>
+            <option value="regex">Regular expression</option>
+        </select>
+        <input class="json-ast-rule-pattern" type="text" aria-label="Rule pattern" placeholder="property name">
+        <select class="json-ast-rule-classification" aria-label="Rule classification">
+            <option value="attribute">attribute</option>
+            <option value="node">node</option>
+            <option value="node-list">node-list</option>
+            <option value="ignore">ignore</option>
+        </select>
+        <button class="json-ast-rule-remove" type="button" aria-label="Remove rule">&times;</button>
+    `;
+    row.querySelector('.json-ast-rule-match').value = rule.match || 'exact';
+    row.querySelector('.json-ast-rule-pattern').value = rule.pattern || '';
+    row.querySelector('.json-ast-rule-classification').value = rule.classification || 'attribute';
+    return row;
+}
+
+function renderJsonAstRules(rules) {
+    const list = document.getElementById('json-ast-rules-list');
+    list.replaceChildren(...rules.map(createJsonAstRuleRow));
+}
+
+function addJsonAstRule() {
+    const list = document.getElementById('json-ast-rules-list');
+    const existingBlankPattern = Array.from(
+        list.querySelectorAll('.json-ast-rule-pattern')
+    ).find(input => !input.value.trim());
+    if (existingBlankPattern) {
+        existingBlankPattern.focus();
+        return;
+    }
+
+    const row = createJsonAstRuleRow();
+    list.append(row);
+    row.querySelector('.json-ast-rule-pattern').focus();
+}
+
+function updateJsonAstDetectionVisibility() {
+    const method = document.getElementById('json-ast-detection-method').value;
+    document.getElementById('json-ast-rules-section').hidden = method === 'custom';
+    document.getElementById('json-ast-unmatched-row').hidden = method !== 'rules-only';
+    document.getElementById('json-ast-custom-section').hidden = method !== 'custom';
+}
+
+function setJsonAstOptionsInDialog(settings) {
+    const normalized = normalizeJsonAstSettings(settings);
+    const primaryInput = document.getElementById('json-ast-primary-key');
+    const secondaryMode = document.getElementById('json-ast-secondary-mode');
+    const secondaryInput = document.getElementById('json-ast-secondary-key');
+
+    primaryInput.value = normalized.primaryKey;
+    secondaryMode.value = normalized.secondaryMode;
+    secondaryInput.value = normalized.secondaryKey;
+    document.getElementById('json-ast-detection-method').value = normalized.detectionMethod;
+    document.getElementById('json-ast-unmatched').value = normalized.unmatched;
+    document.getElementById('json-ast-custom-function').value = normalized.customFunction;
+    document.getElementById('json-ast-field-node-name').value = normalized.fieldNodeName;
+    document.getElementById('json-ast-list-field-node-name').value = normalized.listFieldNodeName;
+    renderJsonAstRules(normalized.rules);
+    updateJsonAstSecondaryKeyVisibility();
+    updateJsonAstDetectionVisibility();
+}
+
+function updateJsonAstOptionsSummary(settings = currentJsonAstSettings) {
+    const normalized = normalizeJsonAstSettings(settings);
+    const secondarySummary = normalized.secondaryMode === 'auto'
+        ? 'Auto'
+        : normalized.secondaryMode === 'key'
+        ? `Key: ${normalized.secondaryKey}`
+        : 'None';
+    const detectionSummary = {
+        'auto-rules': 'Auto + Rules',
+        'rules-only': 'Rules only',
+        custom: 'Custom function',
+    }[normalized.detectionMethod];
+
+    document.getElementById('json-ast-summary-primary').textContent = normalized.primaryKey;
+    document.getElementById('json-ast-summary-secondary').textContent = secondarySummary;
+    document.getElementById('json-ast-summary-detection').textContent = detectionSummary;
+}
+
+function clearJsonAstOptionsError() {
+    const errorElement = document.getElementById('json-ast-options-error');
+    if (!errorElement) return;
+    errorElement.textContent = '';
+    errorElement.hidden = true;
+}
+
+function showJsonAstOptionsError(error) {
+    const errorElement = document.getElementById('json-ast-options-error');
+    if (!errorElement) return;
+    errorElement.textContent = error?.message || String(error);
+    errorElement.hidden = false;
+}
+
+function openJsonAstOptionsModal() {
+    const modal = document.getElementById('json-ast-options-modal');
+    const button = document.getElementById('json-ast-options-btn');
+    if (!modal) return;
+
+    setJsonAstOptionsInDialog(currentJsonAstSettings);
+    clearJsonAstOptionsError();
+    modal.hidden = false;
+    if (button) button.setAttribute('aria-expanded', 'true');
+    document.getElementById('json-ast-primary-key').focus();
+}
+
+function closeJsonAstOptionsModal() {
+    const modal = document.getElementById('json-ast-options-modal');
+    const button = document.getElementById('json-ast-options-btn');
+    if (!modal || modal.hidden) return;
+
+    setJsonAstOptionsInDialog(currentJsonAstSettings);
+    clearJsonAstOptionsError();
+    modal.hidden = true;
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.focus();
+    }
+}
+
+function applyJsonAstOptions() {
+    try {
+        const settings = normalizeJsonAstSettings(getJsonAstSettingsFromDialog());
+        const options = buildJsonAstImportOptions(settings);
+        currentJsonAstSettings = settings;
+        currentJsonAstImportOptions = JsonAstImport.cloneOptions(options);
+        updateJsonAstOptionsSummary(currentJsonAstSettings);
+        closeJsonAstOptionsModal();
+
+        if (currentTargetSource === 'json' && targetInput.value.trim()) {
+            currentTargetTree = null;
+            nodeSourceRangeMap = new WeakMap();
+            clearSourceMatchHighlights();
+            executeMatchWithTree();
+        }
+    } catch (error) {
+        showJsonAstOptionsError(error);
+    }
+}
+
+function createJsonAstSample(settings = currentJsonAstSettings) {
+    const normalized = normalizeJsonAstSettings(settings);
+    const sample = Object.create(null);
+    Object.defineProperty(sample, normalized.primaryKey, {
+        value: 'Identifier',
+        enumerable: true,
+    });
+
+    let secondaryKey = null;
+    if (normalized.secondaryMode === 'key') {
+        secondaryKey = normalized.secondaryKey;
+    } else if (normalized.secondaryMode === 'auto') {
+        secondaryKey = ['name', 'value', 'operator', 'kind']
+            .find(key => key !== normalized.primaryKey) || null;
+    }
+    if (secondaryKey) {
+        Object.defineProperty(sample, secondaryKey, {
+            value: 'sample',
+            enumerable: true,
+        });
+    }
+    return JSON.stringify(sample, null, 2);
+}
+
+function insertJsonAstSample() {
+    if (targetInput.value.trim() && !window.confirm('現在のJSONをサンプルで上書きしますか？')) {
+        return;
+    }
+    targetInput.value = createJsonAstSample();
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInput.focus();
+}
+
+function clearJsonAstInput() {
+    targetInput.value = '';
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInput.focus();
+}
+
+function setupJsonAstImport() {
+    const panel = document.getElementById('json-ast-inline-panel');
+    if (!panel) return;
+    if (panel.dataset.initialized === 'true') return;
+    panel.dataset.initialized = 'true';
+
+    document.getElementById('json-ast-options-btn').addEventListener('click', openJsonAstOptionsModal);
+    document.getElementById('json-ast-options-apply-btn').addEventListener('click', applyJsonAstOptions);
+    document.getElementById('json-ast-options-cancel-btn').addEventListener('click', closeJsonAstOptionsModal);
+    document.getElementById('json-ast-options-close-btn').addEventListener('click', closeJsonAstOptionsModal);
+    document.getElementById('json-ast-secondary-mode').addEventListener('change', event => {
+        updateJsonAstSecondaryKeyVisibility(event.target.value === 'key');
+    });
+    document.getElementById('json-ast-detection-method').addEventListener(
+        'change',
+        updateJsonAstDetectionVisibility
+    );
+    document.getElementById('json-ast-add-rule-btn').addEventListener('click', addJsonAstRule);
+    document.getElementById('json-ast-rules-list').addEventListener('click', event => {
+        const button = event.target.closest('.json-ast-rule-remove');
+        if (button) button.closest('.json-ast-rule-row').remove();
+    });
+    document.getElementById('json-ast-sample-btn').addEventListener('click', insertJsonAstSample);
+    document.getElementById('json-ast-clear-btn').addEventListener('click', clearJsonAstInput);
+    document.getElementById('json-ast-options-modal').addEventListener('click', event => {
+        if (event.target === event.currentTarget) closeJsonAstOptionsModal();
+    });
+
+    setJsonAstOptionsInDialog(currentJsonAstSettings);
+    updateJsonAstOptionsSummary(currentJsonAstSettings);
+    setJsonAstPanelVisible(false);
 }
 
 function getJsonCstOptionsFromPanel() {
@@ -4255,11 +4614,6 @@ function setupDebugMode(result, pattern, targetTree) {
 let parsedAST = null;
 let convertedTree = null;
 
-// JSON AST入力専用の設定。Code -> JavaScriptは既存の変換処理を維持する。
-// keys.secondaryを省略した初期設定では、従来どおり
-// name/value/operator/kindのうち最初に存在する値がSecondaryになる。
-const JSON_AST_IMPORT_OPTIONS = JsonAstImport.cloneOptions();
-
 /**
  * Programmatically switch to a tab
  */
@@ -4575,7 +4929,7 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                     const rootNode = JsonAstImport.importJsonAstNode(
                         parsedAST,
                         Tree1,
-                        JSON_AST_IMPORT_OPTIONS
+                        CODE_JSON_AST_IMPORT_OPTIONS
                     );
                     convertedTree = new Tree1(new Tree1.BoxClass(rootNode));
                     // console.log('Converted Tree:', convertedTree);

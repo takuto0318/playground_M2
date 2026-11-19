@@ -10,6 +10,7 @@
         listFieldNodeName: '__ListField',
         classifyProperty: null,
     });
+    const structuralNodeKinds = new WeakMap();
 
     class JsonAstImportError extends Error {
         constructor(message, path = '$') {
@@ -144,17 +145,157 @@
         return 'attribute';
     }
 
+    function globToRegExp(pattern) {
+        let source = '^';
+        for (const character of pattern) {
+            if (character === '*') {
+                source += '.*';
+            } else if (character === '?') {
+                source += '.';
+            } else {
+                source += character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+        }
+        return new RegExp(`${source}$`);
+    }
+
+    function compilePropertyRules(rawRules = []) {
+        if (!Array.isArray(rawRules)) {
+            throw new JsonAstImportError('Rules must be an array', '$options.rules');
+        }
+
+        return rawRules.map((rawRule, index) => {
+            const rulePath = `$options.rules[${index}]`;
+            const match = rawRule?.match;
+            const pattern = rawRule?.pattern;
+            const classification = rawRule?.classification;
+
+            if (!['exact', 'glob', 'regex'].includes(match)) {
+                throw new JsonAstImportError(
+                    'Rule matching must be exact, glob, or regex',
+                    `${rulePath}.match`
+                );
+            }
+            if (typeof pattern !== 'string' || !pattern) {
+                throw new JsonAstImportError(
+                    'Rule pattern must be a non-empty string',
+                    `${rulePath}.pattern`
+                );
+            }
+            if (!['attribute', 'node', 'node-list', 'ignore'].includes(classification)) {
+                throw new JsonAstImportError(
+                    'Rule classification must be attribute, node, node-list, or ignore',
+                    `${rulePath}.classification`
+                );
+            }
+
+            let matches;
+            if (match === 'exact') {
+                matches = key => key === pattern;
+            } else {
+                let expression;
+                try {
+                    expression = match === 'glob'
+                        ? globToRegExp(pattern)
+                        : new RegExp(pattern);
+                } catch (error) {
+                    throw new JsonAstImportError(
+                        `Invalid ${match} pattern: ${error.message}`,
+                        `${rulePath}.pattern`
+                    );
+                }
+                matches = key => expression.test(key);
+            }
+
+            return { matches, classification };
+        });
+    }
+
+    function compileCustomFunction(source) {
+        if (typeof source !== 'string' || !source.trim()) {
+            throw new JsonAstImportError(
+                'Custom function must not be empty',
+                '$options.customFunction'
+            );
+        }
+
+        let customFunction;
+        try {
+            customFunction = Function(`"use strict"; return (${source}\n);`)();
+        } catch (error) {
+            throw new JsonAstImportError(
+                `Invalid custom function: ${error.message}`,
+                '$options.customFunction'
+            );
+        }
+        if (typeof customFunction !== 'function') {
+            throw new JsonAstImportError(
+                'Custom function source must evaluate to a function',
+                '$options.customFunction'
+            );
+        }
+        return customFunction;
+    }
+
+    function createPropertyClassifier(rawConfig = {}) {
+        const method = rawConfig.method || 'auto-rules';
+        if (!['auto-rules', 'rules-only', 'custom'].includes(method)) {
+            throw new JsonAstImportError(
+                'Detection method must be auto-rules, rules-only, or custom',
+                '$options.method'
+            );
+        }
+
+        if (method === 'custom') {
+            const customFunction = compileCustomFunction(rawConfig.customFunction || '');
+            return ({ node, key }) => {
+                const result = customFunction(node, key);
+                if (!['attribute', 'node', 'node-list', 'ignore'].includes(result)) {
+                    throw new Error(
+                        'Custom function must return attribute, node, node-list, or ignore'
+                    );
+                }
+                return result;
+            };
+        }
+
+        const rules = compilePropertyRules(rawConfig.rules || []);
+        const unmatched = rawConfig.unmatched || 'attribute';
+        if (!['attribute', 'ignore'].includes(unmatched)) {
+            throw new JsonAstImportError(
+                'Unmatched must be attribute or ignore',
+                '$options.unmatched'
+            );
+        }
+
+        return ({ key }) => {
+            for (const rule of rules) {
+                if (rule.matches(key)) return rule.classification;
+            }
+            return method === 'auto-rules' ? 'auto' : unmatched;
+        };
+    }
+
     function classifyProperty(node, key, value, options, path) {
         const automatic = defaultClassifyProperty(value, options);
         if (!options.classifyProperty) return automatic;
 
-        const result = options.classifyProperty({
-            node,
-            key,
-            value,
-            path,
-            automatic,
-        });
+        let result;
+        try {
+            result = options.classifyProperty({
+                node,
+                key,
+                value,
+                path,
+                automatic,
+            });
+        } catch (error) {
+            if (error instanceof JsonAstImportError) throw error;
+            throw new JsonAstImportError(
+                `Property classifier failed: ${error?.message || String(error)}`,
+                path
+            );
+        }
         if (result === undefined || result === null || result === 'auto') return automatic;
         if (!['node', 'node-list', 'attribute', 'ignore'].includes(result)) {
             throw new JsonAstImportError(
@@ -246,7 +387,7 @@
         return attributes;
     }
 
-    function makeStructuralNode(TreeClass, primary, secondary, children) {
+    function makeStructuralNode(TreeClass, primary, secondary, children, kind) {
         const attributes = createTreeAttributes(
             TreeClass,
             primary,
@@ -254,7 +395,19 @@
             createDictionary(),
             '$structural'
         );
-        return new TreeClass.NodeClass(attributes, children);
+        const node = new TreeClass.NodeClass(attributes, children);
+        structuralNodeKinds.set(node, kind);
+        return node;
+    }
+
+    function getStructuralNodeKind(node) {
+        return node && typeof node === 'object'
+            ? structuralNodeKinds.get(node) || null
+            : null;
+    }
+
+    function isStructuralNode(node) {
+        return getStructuralNodeKind(node) !== null;
     }
 
     function importNode(jsonNode, TreeClass, options, path) {
@@ -298,7 +451,8 @@
                     TreeClass,
                     options.fieldNodeName,
                     key,
-                    [child]
+                    [child],
+                    'field'
                 ));
                 continue;
             }
@@ -330,7 +484,8 @@
                 TreeClass,
                 options.listFieldNodeName,
                 key,
-                listChildren
+                listChildren,
+                'list-field'
             ));
         }
 
@@ -365,7 +520,10 @@
         isNodeObject,
         isNodeList,
         defaultClassifyProperty,
+        createPropertyClassifier,
         classifyProperty,
+        getStructuralNodeKind,
+        isStructuralNode,
         treeToPatternString,
         importJsonAstNode,
         importJsonAst,
