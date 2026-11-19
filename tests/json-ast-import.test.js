@@ -388,7 +388,9 @@ assert.throws(
             }`,
         }),
     }),
-    error => error.path === '$.items' && /test failure/.test(error.message)
+    error => error.path === '$.items'
+        && /test failure/.test(error.message)
+        && /\(path: \$\.items\)/.test(error.message)
 );
 
 // Pattern-string serialization keeps TreeMatchLib empty children as "_" so

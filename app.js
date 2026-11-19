@@ -53,6 +53,7 @@ let currentJsonAstSettings = {
 let currentJsonAstImportOptions = buildJsonAstImportOptions(currentJsonAstSettings);
 let currentJsonCstImportOptions = JsonCstImport.cloneOptions();
 let currentJsonCstTree = null;
+let currentJsonAstConversionError = null;
 
 // ツリー可視化タブ用のズーム状態
 let currentZoom = 1.0;// ズーム倍率の初期値
@@ -104,6 +105,9 @@ function init() {
         if (currentTargetTree) {
             // console.log('🗑️ Target input manually edited - clearing currentTargetTree');
             currentTargetTree = null;
+        }
+        if (currentTargetSource === 'json' && !targetInput.value.trim()) {
+            clearJsonAstConversionError();
         }
         nodeSourceRangeMap = new WeakMap();
         clearSourceMatchHighlights();
@@ -363,6 +367,7 @@ function getTargetTreeFromInput(targetStr) {
             Tree1,
             currentJsonAstImportOptions
         );
+        clearJsonAstConversionError();
         return currentTargetTree;
     }
 
@@ -1180,10 +1185,43 @@ function displayMatchFail() {
     window.lastMatchedResults = null;// 複数マッチの結果をクリアする
 }
 
+function errorMessageOf(error) {
+    return error?.message || String(error);
+}
+
+function renderJsonAstConversionError() {
+    const errorElement = document.getElementById('tree-viz-json-ast-error');
+    if (!errorElement) return;
+
+    const visible = currentTargetSource === 'json' && Boolean(currentJsonAstConversionError);
+    errorElement.hidden = !visible;
+    errorElement.replaceChildren();
+    if (!visible) return;
+
+    const title = document.createElement('strong');
+    title.textContent = 'JSON AST conversion error';
+    const message = document.createElement('span');
+    message.textContent = currentJsonAstConversionError;
+    errorElement.append(title, message);
+}
+
+function setJsonAstConversionError(error) {
+    currentJsonAstConversionError = errorMessageOf(error);
+    renderJsonAstConversionError();
+}
+
+function clearJsonAstConversionError() {
+    currentJsonAstConversionError = null;
+    renderJsonAstConversionError();
+}
+
 // エラー表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。ツリー構築やマッチ処理でエラーが出た場合は、結果エリアにエラーメッセージを表示する
 function displayError(error) {
-    const errorMsg = error.message || error.toString();
+    const errorMsg = errorMessageOf(error);
     resultArea.innerHTML = `<div class="match-error"><strong>Error:</strong><br>${escapeHtml(errorMsg)}</div>`;
+    if (currentTargetSource === 'json' && !currentTargetTree) {
+        setJsonAstConversionError(errorMsg);
+    }
     // エラー時も前回結果をクリアしておく
     window.lastMatchedResult  = null;
     window.lastMatchedResults = null;
@@ -2224,6 +2262,7 @@ function setActiveTargetSource(source) {
     setJsonAstPanelVisible(source === 'json');
     setJsonCstPanelVisible(source === 'json-cst');
     updateTargetInputPresentation(source);
+    renderJsonAstConversionError();
 }
 
 function handleCodeLangSelect(e) {
@@ -2588,6 +2627,7 @@ function insertJsonAstSample() {
 
 function clearJsonAstInput() {
     targetInput.value = '';
+    clearJsonAstConversionError();
     targetInput.dispatchEvent(new Event('input', { bubbles: true }));
     targetInput.focus();
 }

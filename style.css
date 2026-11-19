@@ -1510,6 +1510,30 @@ textarea::placeholder {
     flex-shrink: 0;
 }
 
+.tree-viz-error[hidden] {
+    display: none;
+}
+
+.tree-viz-error {
+    flex: 0 0 auto;
+    margin: 0.55rem 1rem 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(239, 68, 68, 0.38);
+    border-radius: 5px;
+    background: rgba(239, 68, 68, 0.09);
+    color: var(--error-color);
+    font-family: 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tree-viz-error strong {
+    display: block;
+    margin-bottom: 0.2rem;
+}
+
 .toolbar-label {
     font-size: 11px;
     color: var(--text-secondary);
