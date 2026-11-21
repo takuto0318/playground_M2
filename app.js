@@ -34,6 +34,8 @@ let currentTargetTree = null;
 // TARGET 欄の入力形式。TreeConstruct 直接入力か、JavaScript コード入力かを区別する。
 let currentTargetSource = 'treeconstruct';
 let currentTargetCodeLang = 'javascript';
+let treeConstructInput = targetInput.value;
+const targetImportStore = new TargetImportState.Store();
 const DEFAULT_JSON_AST_CUSTOM_FUNCTION = `(node, key) => {
     if (key === 'children') return 'node-list';
     return 'attribute';
@@ -54,8 +56,37 @@ let currentJsonAstSettings = {
 };
 let currentJsonAstImportOptions = buildJsonAstImportOptions(currentJsonAstSettings);
 let currentJsonCstImportOptions = JsonCstImport.cloneOptions();
-let currentJsonCstTree = null;
-let currentJsonAstConversionError = null;
+
+function isImportTargetSource(source = currentTargetSource) {
+    return source === 'code' || source === 'json' || source === 'json-cst';
+}
+
+function importStateKey(source = currentTargetSource, language = currentTargetCodeLang) {
+    return source === 'code' ? `code:${language}` : source;
+}
+
+function jsonAstSettingsSignature() {
+    return JSON.stringify(normalizeJsonAstSettings(currentJsonAstSettings));
+}
+
+function jsonCstSettingsSignature() {
+    return JSON.stringify(JsonCstImport.cloneOptions(currentJsonCstImportOptions));
+}
+
+function importSettingsSignature(source = currentTargetSource, language = currentTargetCodeLang) {
+    if (source === 'json') return jsonAstSettingsSignature();
+    if (source === 'json-cst') return jsonCstSettingsSignature();
+    if (source === 'code') return language;
+    return '';
+}
+
+function currentImportState() {
+    if (!isImportTargetSource()) return null;
+    return targetImportStore.get(
+        importStateKey(),
+        importSettingsSignature()
+    );
+}
 
 // ツリー可視化タブ用のズーム状態
 let currentZoom = 1.0;// ズーム倍率の初期値
@@ -102,17 +133,13 @@ function init() {
     // ユーザーがターゲット入力欄を直接編集したら currentTargetTree を破棄する
     // 事前読み込みツリーと入力文字列の不一致を防ぐため
     targetInput.addEventListener('input', () => {// ターゲット入力が変わるたびに、もし currentTargetTree があればそれを null にする
-        // JSON CSTはImportを押すまで直前に取り込んだ木を保持する。
-        if (currentTargetSource === 'json-cst') {
-            clearJsonCstError();
-            return;
-        }
+        // Import方式は入力を状態管理へ保存するだけで、最後の成功木を破棄しない。
+        if (isImportTargetSource()) return;
+
+        treeConstructInput = targetInput.value;
         if (currentTargetTree) {
             // console.log('🗑️ Target input manually edited - clearing currentTargetTree');
             currentTargetTree = null;
-        }
-        if (currentTargetSource === 'json' && !targetInput.value.trim()) {
-            clearJsonAstConversionError();
         }
         nodeSourceRangeMap = new WeakMap();
         clearSourceMatchHighlights();
@@ -178,6 +205,8 @@ function init() {
     });
     setupJsonAstImport();
     setupJsonCstImport();
+    document.getElementById('code-import-btn').addEventListener('click', importCodeFromPanel);
+    document.getElementById('code-clear-btn').addEventListener('click', clearCurrentImportTarget);
     setupResponsiveTarget();
 
     // 外側をクリックしたらドロップダウンを閉じる
@@ -228,9 +257,17 @@ function handleTabSwitch(e) {
 // 入力のたびにすぐ実行すると、タイプ中にも重い処理が連続して走ってしまう
 // そのため少し待ってから実行している（デバウンス）。300ms タイムアウトしてから最後の入力に対して 1 回だけ実行されるイメージ
 function handleInputChange(event) {
-    // JSON CSTは入力中に自動変換せず、Import操作でのみ木を更新する。
+    // Import方式はTARGET入力中に解析・変換しない。
     // PATTERN側で予約済みの再照合タイマーも取り消さない。
-    if (event?.target === targetInput && currentTargetSource === 'json-cst') {
+    if (event?.target === targetInput && isImportTargetSource()) {
+        const state = targetImportStore.setDraft(
+            importStateKey(),
+            targetInput.value,
+            importSettingsSignature()
+        );
+        if (currentTargetSource === 'json-cst') clearJsonCstError();
+        clearSourceMatchHighlights();
+        renderImportState(state);
         return;
     }
     clearTimeout(debounceTimer);
@@ -290,8 +327,8 @@ function getCurrentTargetInputText() {
 }
 
 function hasTargetForCurrentSource(targetStr) {
-    return Boolean(targetStr)
-        || (currentTargetSource === 'json-cst' && Boolean(currentJsonCstTree));
+    if (isImportTargetSource()) return Boolean(currentTargetTree);
+    return Boolean(targetStr);
 }
 
 function parseJavaScriptCodeToTree(code) {
@@ -345,44 +382,20 @@ function getTargetTreeFromInput(targetStr) {
         return currentTargetTree;
     }
 
-    if (currentTargetSource === 'json-cst' && currentJsonCstTree) {
-        currentTargetTree = currentJsonCstTree;
-        return currentTargetTree;
-    }
-
-    if (currentTargetSource === 'code') {
-        if (currentTargetCodeLang === 'javascript') {
-            // console.log('📝 Parsing JavaScript target code');
-            currentTargetTree = parseJavaScriptCodeToTree(targetStr);
-            return currentTargetTree;
-        }
-        if (currentTargetCodeLang === 'c') {
-            currentTargetTree = parseCCodeToTree(targetStr);
-            return currentTargetTree;
-        }
-        else {
-            throw new Error(`${currentTargetCodeLang} target code parsing is not supported yet.`);
-        }
-    }
-
-    if (currentTargetSource === 'json') {
-        const jsonAst = JSON.parse(targetStr);
-        currentTargetTree = JsonAstImport.importJsonAst(
-            jsonAst,
-            Tree1,
-            currentJsonAstImportOptions
-        );
-        clearJsonAstConversionError();
-        return currentTargetTree;
-    }
-
-    if (currentTargetSource === 'json-cst') {
-        throw new Error('JSON CSTはImportを押して取り込んでください。');
+    if (isImportTargetSource()) {
+        throw new Error('TARGETのImportを実行してください。');
     }
 
     // console.log('📝 Parsing target from TreeConstruct string');
     currentTargetTree = TreeConstruct(Tree1, targetStr).Tree();
     return currentTargetTree;
+}
+
+function clearMatchResultState() {
+    lastMatchResult = null;
+    window.lastMatchedResult = null;
+    window.lastMatchedResults = null;
+    window.lastMatchedPattern = null;
 }
 
 // パターンマッチングを実行する
@@ -394,15 +407,13 @@ function executeMatch() {
 
     if (!hasTarget) {// ターゲットが空なら結果表示を初期状態に戻す
         resultArea.innerHTML = '<p class="hint">Enter target to see tree visualization...</p>';
-        window.lastMatchedResult = null;
-        window.lastMatchedResults = null;
+        clearMatchResultState();
         return;
     }
 
     if (!pattern) {// パターンが空ならマッチ処理はせず、ツリー表示だけ行う
         resultArea.innerHTML = '<p class="hint">🌳 Tree visualization mode<br>Enter a pattern to perform matching</p>';
-        window.lastMatchedResult = null;
-        window.lastMatchedResults = null;
+        clearMatchResultState();
         // 実際のツリー描画は executeMatchWithTree 側でまとめて行う
         return;
     }
@@ -510,11 +521,9 @@ function executeTreeMatch(targetTree, pattern) {
             lastMatchResult = resultToJSON(result);
             displayMatchSuccess(result);
         } else {
-            lastMatchResult = null;
             displayMatchFail();
         }
     } catch (error) {
-        lastMatchResult = null;
         displayError(error);
     }
 }
@@ -532,11 +541,9 @@ function executeTreeMatchFind(targetTree, pattern) {
             lastMatchResult = results.map(r => resultToJSON(r));// 結果を JSON 化して保存する。これも「結果をコピー」ボタンで出力できるようにするため
             displayMatchFindSuccess(results);
         } else {
-            lastMatchResult = null;
             displayMatchFail();
         }
     } catch (error) {
-        lastMatchResult = null;
         displayError(error);
     }
 }
@@ -1002,7 +1009,8 @@ function nodeToReachableTypePathPattern(node) {
 }
 
 function selectTargetSourceForNode(node) {
-    if (currentTargetSource !== 'code') {
+    if (currentTargetSource !== 'code'
+        || currentImportState()?.status !== TargetImportState.STATUS.IMPORTED) {
         return;
     }
 
@@ -1044,7 +1052,8 @@ function findSmallestRenderedNodeCoveringRange(selectionStart, selectionEnd) {
 }
 
 function highlightTreeNodeForTargetSelection() {
-    if (currentTargetSource !== 'code') return;
+    if (currentTargetSource !== 'code'
+        || currentImportState()?.status !== TargetImportState.STATUS.IMPORTED) return;
 
     const selectionStart = targetInput.selectionStart;
     const selectionEnd = targetInput.selectionEnd;
@@ -1192,50 +1201,159 @@ function attachNodeSourceSelectHandler(rect, node) {
 function displayMatchFail() {
     resultArea.innerHTML = '<p class="match-fail">Match: NO MATCH</p>';
     // 前回成功時の結果を残すと SVG に古い色が出続けるので必ずクリアする
-    window.lastMatchedResult  = null;// 単一マッチの結果をクリアする
-    window.lastMatchedResults = null;// 複数マッチの結果をクリアする
+    clearMatchResultState();
 }
 
 function errorMessageOf(error) {
     return error?.message || String(error);
 }
 
-function renderJsonAstConversionError() {
-    const errorElement = document.getElementById('tree-viz-json-ast-error');
-    if (!errorElement) return;
-
-    const visible = currentTargetSource === 'json' && Boolean(currentJsonAstConversionError);
-    errorElement.hidden = !visible;
-    errorElement.replaceChildren();
-    if (!visible) return;
-
-    const title = document.createElement('strong');
-    title.textContent = 'JSON AST conversion error';
-    const message = document.createElement('span');
-    message.textContent = currentJsonAstConversionError;
-    errorElement.append(title, message);
+function importStatusPresentation(state) {
+    if (!state) return null;
+    if (state.status === TargetImportState.STATUS.IMPORTED) {
+        return { label: '取り込み済み', output: null };
+    }
+    if (state.status === TargetImportState.STATUS.DIRTY) {
+        const message = '変更あり・再取り込みが必要です。結果は最後に正常に取り込んだ木に対するものです。';
+        return { label: message, output: message };
+    }
+    if (state.status === TargetImportState.STATUS.FAILED) {
+        const previous = state.tree
+            ? '前回成功時の木を表示しています。'
+            : '表示できる取り込み済みの木はありません。';
+        const message = `取り込み失敗: ${state.error}\n${previous}`;
+        return { label: message, output: message };
+    }
+    return { label: '未取り込み', output: null };
 }
 
-function setJsonAstConversionError(error) {
-    currentJsonAstConversionError = errorMessageOf(error);
-    renderJsonAstConversionError();
+function setImportStatusElement(element, state, text) {
+    if (!element || !state || !text) {
+        if (element) {
+            element.hidden = true;
+            element.textContent = '';
+            delete element.dataset.status;
+        }
+        return;
+    }
+    element.hidden = false;
+    element.dataset.status = state.status;
+    element.textContent = text;
 }
 
-function clearJsonAstConversionError() {
-    currentJsonAstConversionError = null;
-    renderJsonAstConversionError();
+function renderImportState(state = currentImportState()) {
+    const targetStatus = document.getElementById('target-import-status');
+    const resultStatus = document.getElementById('result-import-status');
+    const treeStatus = document.getElementById('tree-viz-import-status');
+    const legacyJsonError = document.getElementById('tree-viz-json-ast-error');
+
+    if (!isImportTargetSource() || !state) {
+        setImportStatusElement(targetStatus, null, null);
+        setImportStatusElement(resultStatus, null, null);
+        setImportStatusElement(treeStatus, null, null);
+        if (legacyJsonError) legacyJsonError.hidden = true;
+        return;
+    }
+
+    const presentation = importStatusPresentation(state);
+    setImportStatusElement(targetStatus, state, presentation.label);
+    setImportStatusElement(resultStatus, state, presentation.output);
+    setImportStatusElement(treeStatus, state, presentation.output);
+    if (legacyJsonError) legacyJsonError.hidden = true;
+}
+
+function useImportedState(state) {
+    currentTargetTree = state?.tree || null;
+    nodeSourceRangeMap = state?.metadata?.nodeSourceRangeMap || new WeakMap();
+    clearSourceMatchHighlights();
+}
+
+function completeCurrentImport(tree, metadata = null) {
+    const state = targetImportStore.markImported(importStateKey(), {
+        input: targetInput.value,
+        settingsSignature: importSettingsSignature(),
+        tree,
+        metadata,
+    });
+    useImportedState(state);
+    renderImportState(state);
+    executeMatchWithTree();
+}
+
+function failCurrentImport(error) {
+    const state = targetImportStore.markFailed(importStateKey(), {
+        input: targetInput.value,
+        settingsSignature: importSettingsSignature(),
+        error,
+    });
+    useImportedState(state);
+    renderImportState(state);
+    // 前回の木がある場合はその表示を維持し、不要な再マッチ・再描画を行わない。
+    if (!state.tree) executeMatchWithTree();
+}
+
+function clearCurrentImportTarget() {
+    if (!isImportTargetSource()) return;
+    const state = targetImportStore.clear(importStateKey(), importSettingsSignature());
+    targetInput.value = '';
+    useImportedState(state);
+    clearMatchResultState();
+    clearJsonCstError();
+    executeMatchWithTree();
+    renderImportState(state);
+    targetInput.focus();
+}
+
+function importCodeFromPanel() {
+    if (currentTargetSource !== 'code') return;
+    const code = targetInput.value;
+    if (!code.trim()) {
+        failCurrentImport(new Error('コードを入力してください。'));
+        return;
+    }
+
+    try {
+        let tree;
+        if (currentTargetCodeLang === 'javascript') {
+            tree = parseJavaScriptCodeToTree(code);
+        } else if (currentTargetCodeLang === 'c') {
+            tree = parseCCodeToTree(code);
+        } else {
+            throw new Error(`${currentTargetCodeLang} target code parsing is not supported yet.`);
+        }
+        completeCurrentImport(tree, { nodeSourceRangeMap });
+    } catch (error) {
+        failCurrentImport(error);
+    }
+}
+
+function importJsonAstFromPanel() {
+    if (currentTargetSource !== 'json') return;
+    const jsonText = targetInput.value;
+    if (!jsonText.trim()) {
+        failCurrentImport(new Error('JSONを入力してください。'));
+        return;
+    }
+
+    try {
+        const jsonAst = JSON.parse(jsonText);
+        const tree = JsonAstImport.importJsonAst(
+            jsonAst,
+            Tree1,
+            currentJsonAstImportOptions
+        );
+        completeCurrentImport(tree, { nodeSourceRangeMap: new WeakMap() });
+    } catch (error) {
+        failCurrentImport(error);
+    }
 }
 
 // エラー表示 executeTreeMatch と executeTreeMatchFind の両方から呼ばれる関数。ツリー構築やマッチ処理でエラーが出た場合は、結果エリアにエラーメッセージを表示する
 function displayError(error) {
     const errorMsg = errorMessageOf(error);
     resultArea.innerHTML = `<div class="match-error"><strong>Error:</strong><br>${escapeHtml(errorMsg)}</div>`;
-    if (currentTargetSource === 'json' && !currentTargetTree) {
-        setJsonAstConversionError(errorMsg);
-    }
     // エラー時も前回結果をクリアしておく
-    window.lastMatchedResult  = null;
-    window.lastMatchedResults = null;
+    clearMatchResultState();
 }
 
 // HTML エスケープ
@@ -1293,7 +1411,9 @@ function getResultSourceRange(result) {
 }
 
 function collectSourceMatchRanges(matchResults, matchMode) {
-    if (currentTargetSource !== 'code' || !matchResults) return [];
+    if (currentTargetSource !== 'code'
+        || currentImportState()?.status !== TargetImportState.STATUS.IMPORTED
+        || !matchResults) return [];
 
     const results = matchMode === 'TreeMatch'
         ? [matchResults]
@@ -2169,11 +2289,63 @@ function setTreeOrientation(orientation) {
 // TreeConstruct 直接入力と JavaScript コード入力を切り替える。
 const TARGET_SOURCE_HELP = {
     treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
-    code:          'JavaScriptコードを入力するとASTへ変換してターゲット木として表示します。',
-    c:             'Cコードを入力すると簡易Cパーサで構文木へ変換してターゲット木として表示します。',
-    json:          'type キーを持つ JSON AST を入力すると、__Field / __ListField 付きの木へ変換します。',
-    'json-cst':    '',
+    code:          'JavaScriptコードを入力し、ImportでASTへ変換します。',
+    c:             'Cコードを入力し、Importで簡易Cパーサの構文木へ変換します。',
+    json:          'JSON ASTを入力し、Importで設定に従った木へ変換します。',
+    'json-cst':    'JSON Syntax Treeを入力し、Importで設定に従った木へ変換します。',
 };
+
+function persistCurrentTargetInput() {
+    if (!isImportTargetSource()) {
+        treeConstructInput = targetInput.value;
+        return;
+    }
+
+    const state = currentImportState();
+    if (state && state.input !== targetInput.value) {
+        targetImportStore.setDraft(
+            importStateKey(),
+            targetInput.value,
+            importSettingsSignature()
+        );
+    }
+}
+
+function activateTargetContext(source, language = currentTargetCodeLang) {
+    persistCurrentTargetInput();
+    if (source === 'code') currentTargetCodeLang = language;
+    setActiveTargetSource(source);
+
+    if (!isImportTargetSource(source)) {
+        targetInput.value = treeConstructInput;
+        currentTargetTree = null;
+        nodeSourceRangeMap = new WeakMap();
+    } else {
+        const state = targetImportStore.get(
+            importStateKey(source, currentTargetCodeLang),
+            importSettingsSignature(source, currentTargetCodeLang)
+        );
+        targetInput.value = state.input;
+        currentTargetTree = state.tree;
+        nodeSourceRangeMap = state.metadata?.nodeSourceRangeMap || new WeakMap();
+    }
+
+    clearSourceMatchHighlights();
+    renderImportState();
+    executeMatchWithTree();
+    targetInput.focus();
+}
+
+function activateConvertedTreeAsTreeConstruct(tree, patternString) {
+    persistCurrentTargetInput();
+    treeConstructInput = patternString;
+    setActiveTargetSource('treeconstruct');
+    targetInput.value = patternString;
+    currentTargetTree = tree;
+    clearSourceMatchHighlights();
+    renderImportState();
+    executeMatchWithTree();
+}
 
 function setupResponsiveTarget() {
     const section = document.querySelector('.target-section');
@@ -2235,6 +2407,13 @@ function setJsonCstPanelVisible(visible) {
     if (!visible) closeJsonCstOptionsModal();
 }
 
+function setCodeImportFooterVisible(visible) {
+    const footer = document.getElementById('code-inline-footer');
+    const targetSection = targetInput.closest('.target-section');
+    if (footer) footer.hidden = !visible;
+    if (targetSection) targetSection.classList.toggle('code-import-mode', visible);
+}
+
 function updateTargetInputPresentation(source) {
     if (!targetInput.dataset.defaultPlaceholder) {
         targetInput.dataset.defaultPlaceholder = targetInput.placeholder;
@@ -2243,6 +2422,10 @@ function updateTargetInputPresentation(source) {
         targetInput.placeholder = '{"type":"Identifier","name":"x"}';
     } else if (source === 'json-cst') {
         targetInput.placeholder = '{"name":"Root","child":[]}';
+    } else if (source === 'code') {
+        targetInput.placeholder = currentTargetCodeLang === 'c'
+            ? 'int main(void) { return 0; }'
+            : '// Enter code, then press Import';
     } else {
         targetInput.placeholder = targetInput.dataset.defaultPlaceholder;
     }
@@ -2267,46 +2450,32 @@ function setActiveTargetSource(source) {
 
     const helpEl = document.getElementById('target-source-help');
     if (helpEl) {
-        helpEl.textContent = TARGET_SOURCE_HELP[source] ?? '';
-        helpEl.hidden = source === 'json' || source === 'json-cst';
+        helpEl.textContent = source === 'code'
+            ? currentTargetCodeLang === 'c'
+                ? TARGET_SOURCE_HELP.c
+                : currentTargetCodeLang === 'javascript'
+                ? TARGET_SOURCE_HELP.code
+                : `${currentTargetCodeLang} code target mode is not implemented yet.`
+            : TARGET_SOURCE_HELP[source] ?? '';
+        helpEl.hidden = false;
     }
+    setCodeImportFooterVisible(source === 'code');
     setJsonAstPanelVisible(source === 'json');
     setJsonCstPanelVisible(source === 'json-cst');
     updateTargetInputPresentation(source);
-    renderJsonAstConversionError();
+    renderImportState();
 }
 
 function handleCodeLangSelect(e) {
     const label  = e.currentTarget.dataset.label;
-    currentTargetSource = 'code';
-    currentTargetCodeLang = label.toLowerCase();
-    currentTargetTree = null;
-    nodeSourceRangeMap = new WeakMap();
-    clearSourceMatchHighlights();
+    const language = label.toLowerCase();
 
     const codeBtn = document.getElementById('target-code-mode-btn');
     if (codeBtn) codeBtn.textContent = `${label} ▼`;
     const menu = document.getElementById('target-code-lang-menu');
     if (menu) menu.style.display = 'none';
 
-    document.querySelectorAll('.target-mode-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.source === 'code');
-    });
-
-    const helpEl = document.getElementById('target-source-help');
-    if (helpEl) {
-        helpEl.hidden = false;
-        helpEl.textContent = label === 'JavaScript'
-            ? TARGET_SOURCE_HELP.code
-            : label === 'C'
-            ? TARGET_SOURCE_HELP.c
-            : `${label} code target mode is not implemented yet.`;
-    }
-    setJsonAstPanelVisible(false);
-    setJsonCstPanelVisible(false);
-    updateTargetInputPresentation('code');
-
-    executeMatch();
+    activateTargetContext('code', language);
 }
 
 function handleTargetModeClick(e) {
@@ -2320,18 +2489,16 @@ function handleTargetModeClick(e) {
         return;
     }
 
-    setActiveTargetSource(source);
-    currentTargetTree = null;
-    nodeSourceRangeMap = new WeakMap();
-    clearSourceMatchHighlights();
-
-    if (source === 'code' && !currentTargetCodeLang) {
-        currentTargetCodeLang = 'javascript';
+    if (source === 'code') {
+        activateTargetContext('code', currentTargetCodeLang || 'javascript');
+        const langEl = document.getElementById('target-code-lang-menu');
+        if (langEl) langEl.style.display = 'block';
+        closeTargetMenu('target-json-type-menu');
+        return;
     }
 
-    // Code モードのときだけ言語選択UIを表示
-    const langEl = document.getElementById('target-code-lang-menu');
-    if (langEl) langEl.style.display = source === 'code' ? 'block' : 'none';
+    activateTargetContext(source);
+    closeTargetMenu('target-code-lang-menu');
     closeTargetMenu('target-json-type-menu');
 }
 
@@ -2342,11 +2509,8 @@ function handleJsonTargetTypeSelect(e) {
 
     if (source === 'json-cst') {
         setJsonCstOptionsInPanel(currentJsonCstImportOptions);
-        currentTargetTree = currentJsonCstTree;
-        nodeSourceRangeMap = new WeakMap();
-        clearSourceMatchHighlights();
         clearJsonCstError();
-        setActiveTargetSource('json-cst');
+        activateTargetContext('json-cst');
 
         const jsonBtn = document.getElementById('target-json-mode-btn');
         if (jsonBtn) jsonBtn.textContent = 'JSON CST ▼';
@@ -2354,10 +2518,7 @@ function handleJsonTargetTypeSelect(e) {
         return;
     }
 
-    currentTargetTree = null;
-    nodeSourceRangeMap = new WeakMap();
-    clearSourceMatchHighlights();
-    setActiveTargetSource('json');
+    activateTargetContext('json');
 
     const jsonBtn = document.getElementById('target-json-mode-btn');
     if (jsonBtn) jsonBtn.textContent = 'JSON AST ▼';
@@ -2627,14 +2788,9 @@ function applyJsonAstOptions() {
         currentJsonAstSettings = settings;
         currentJsonAstImportOptions = JsonAstImport.cloneOptions(options);
         updateJsonAstOptionsSummary(currentJsonAstSettings);
+        const state = targetImportStore.setSettings('json', jsonAstSettingsSignature());
         closeJsonAstOptionsModal();
-
-        if (currentTargetSource === 'json' && targetInput.value.trim()) {
-            currentTargetTree = null;
-            nodeSourceRangeMap = new WeakMap();
-            clearSourceMatchHighlights();
-            executeMatchWithTree();
-        }
+        if (currentTargetSource === 'json') renderImportState(state);
     } catch (error) {
         showJsonAstOptionsError(error);
     }
@@ -2674,10 +2830,7 @@ function insertJsonAstSample() {
 }
 
 function clearJsonAstInput() {
-    targetInput.value = '';
-    clearJsonAstConversionError();
-    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-    targetInput.focus();
+    clearCurrentImportTarget();
 }
 
 function setupJsonAstImport() {
@@ -2714,6 +2867,7 @@ function setupJsonAstImport() {
     });
     document.getElementById('json-ast-sample-btn').addEventListener('click', insertJsonAstSample);
     document.getElementById('json-ast-clear-btn').addEventListener('click', clearJsonAstInput);
+    document.getElementById('json-ast-import-btn').addEventListener('click', importJsonAstFromPanel);
     document.getElementById('json-ast-options-modal').addEventListener('click', event => {
         if (event.target === event.currentTarget) closeJsonAstOptionsModal();
     });
@@ -2805,6 +2959,7 @@ function applyJsonCstOptions() {
         const options = JsonCstImport.validateOptions(getJsonCstOptionsFromPanel());
         currentJsonCstImportOptions = JsonCstImport.cloneOptions(options);
         updateJsonCstOptionsSummary(currentJsonCstImportOptions);
+        const state = targetImportStore.setSettings('json-cst', jsonCstSettingsSignature());
 
         const modal = document.getElementById('json-cst-options-modal');
         const button = document.getElementById('json-cst-options-btn');
@@ -2814,6 +2969,7 @@ function applyJsonCstOptions() {
             button.setAttribute('aria-expanded', 'false');
             button.focus();
         }
+        if (currentTargetSource === 'json-cst') renderImportState(state);
     } catch (error) {
         showJsonCstOptionsError(error);
     }
@@ -2834,9 +2990,11 @@ function clearJsonCstError() {
 }
 
 function importJsonCstFromPanel() {
-    const jsonText = targetInput.value.trim();
-    if (!jsonText) {
-        showJsonCstError(new Error('JSONを入力してください。'));
+    const jsonText = targetInput.value;
+    if (!jsonText.trim()) {
+        const error = new Error('JSONを入力してください。');
+        showJsonCstError(error);
+        failCurrentImport(error);
         return;
     }
 
@@ -2846,19 +3004,11 @@ function importJsonCstFromPanel() {
         const importedTree = JsonCstImport.importJsonSyntaxTree(jsonValue, Tree1, options);
 
         // ここまで成功した後にだけ、現在表示中の木を置き換える。
-        currentJsonCstTree = importedTree;
-        currentTargetTree = importedTree;
-        nodeSourceRangeMap = new WeakMap();
-        clearSourceMatchHighlights();
         clearJsonCstError();
-        setActiveTargetSource('json-cst');
-
-        const jsonBtn = document.getElementById('target-json-mode-btn');
-        if (jsonBtn) jsonBtn.textContent = 'JSON CST ▼';
-
-        executeMatchWithTree();
+        completeCurrentImport(importedTree, { nodeSourceRangeMap: new WeakMap() });
     } catch (error) {
         showJsonCstError(error);
+        failCurrentImport(error);
     }
 }
 
@@ -2870,6 +3020,7 @@ function insertJsonCstSample() {
     try {
         targetInput.value = JsonCstImport.generateSample(currentJsonCstImportOptions);
         clearJsonCstError();
+        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
     } catch (error) {
         showJsonCstError(error);
     }
@@ -2882,9 +3033,7 @@ function setupJsonCstImport() {
     document.getElementById('json-cst-import-btn').addEventListener('click', importJsonCstFromPanel);
     document.getElementById('json-cst-sample-btn').addEventListener('click', insertJsonCstSample);
     document.getElementById('json-cst-clear-btn').addEventListener('click', () => {
-        targetInput.value = '';
-        clearJsonCstError();
-        targetInput.focus();
+        clearCurrentImportTarget();
     });
     document.getElementById('json-cst-options-btn').addEventListener('click', openJsonCstOptionsModal);
     document.getElementById('json-cst-options-apply-btn').addEventListener('click', applyJsonCstOptions);
@@ -4905,13 +5054,11 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                 document.getElementById('parse-result-section').style.display = 'block';
                 document.getElementById('ast-view-section').style.display = 'none';
 
-                // そのままターゲットツリーとして使えるよう自動設定する
-                currentTargetTree = convertedTree;
-                document.getElementById('target-input').value = patternString;
+                // 別モードのImport状態を上書きせず、TreeConstructのターゲットとして設定する。
+                activateConvertedTreeAsTreeConstruct(convertedTree, patternString);
 
                 // Result タブへ移動し、ツリー可視化も更新する
                 switchTab('result');
-                executeMatchWithTree();
 
                 // 完了メッセージを表示する
                 alert('✅ パース成功！\n\n構文木がターゲットに自動設定されました。\nパターンを入力してマッチングを試してください。');
@@ -4931,7 +5078,6 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
             document.getElementById('ast-view-section').style.display = 'none';
             parsedAST = null;
             convertedTree = null;
-            currentTargetTree = null;
         });
     }
 
@@ -4943,12 +5089,9 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                 return;
             }
 
-            // 現在のターゲットツリーとしてセットする
-            currentTargetTree = convertedTree;
-
             // ターゲット入力欄にもツリー文字列を反映する
             const patternString = treeToPatternString(convertedTree);
-            document.getElementById('target-input').value = patternString;
+            activateConvertedTreeAsTreeConstruct(convertedTree, patternString);
 
             // Result タブへ切り替える
             switchTab('result');
@@ -5044,13 +5187,11 @@ function setupCodeImport() {// コードインポート機能の初期化。こ�
                     document.getElementById('parse-result-section').style.display = 'block';
                     document.getElementById('ast-view-section').style.display = 'none';
 
-                    // そのままターゲットツリーとして自動設定する
-                    currentTargetTree = convertedTree;
-                    document.getElementById('target-input').value = patternString;
+                    // 別モードのImport状態を上書きせず、TreeConstructのターゲットとして設定する。
+                    activateConvertedTreeAsTreeConstruct(convertedTree, patternString);
 
                     // Result タブへ移動し、ツリー可視化も更新する
                     switchTab('result');
-                    executeMatchWithTree();
 
                     // 完了メッセージを表示する
                     alert(`✅ JSON読み込み成功！\n\nファイル: ${file.name}\n構文木がターゲットに自動設定されました。`);
@@ -5294,10 +5435,7 @@ function applyTransformToTree() {
 
         // 変換後ツリーをターゲット入力欄へ反映する
         const treeStr = nodeToString(transformedTree.GetRootNode());
-        document.getElementById('target-input').value = treeStr;
-
-        // 現在のツリー参照も更新する
-        currentTargetTree = transformedTree;
+        activateConvertedTreeAsTreeConstruct(transformedTree, treeStr);
 
         // 成功メッセージを表示する
         alert('✅ Transformation applied!\n\nThe TARGET tree has been updated.\nYou can now match new patterns against it.');

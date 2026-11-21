@@ -101,6 +101,7 @@
                     </button>
                 </div>
                 <p id="target-source-help" class="target-source-help">TreeConstruct形式でターゲット木を直接入力します。例: Program &gt; FunctionDeclaration &gt; Identifier#test</p>
+                <p id="target-import-status" class="target-import-status" role="status" hidden></p>
                 <div id="json-ast-inline-panel" class="json-cst-inline-panel" hidden>
                     <div class="json-cst-options-summary-row">
                         <div class="json-cst-options-summary" aria-label="Current JSON AST options">
@@ -126,10 +127,17 @@
                     <pre id="target-highlight-layer" aria-hidden="true"></pre>
                     <textarea id="target-input" placeholder="A > B C D" rows="8" spellcheck="false"></textarea>
                 </div>
+                <div id="code-inline-footer" class="json-cst-inline-footer" hidden>
+                    <div class="json-cst-inline-actions">
+                        <button id="code-clear-btn" class="action-btn secondary" type="button">Clear</button>
+                        <button id="code-import-btn" class="action-btn primary" type="button">Import</button>
+                    </div>
+                </div>
                 <div id="json-ast-inline-footer" class="json-cst-inline-footer" hidden>
                     <div class="json-cst-inline-actions">
                         <button id="json-ast-sample-btn" class="action-btn secondary" type="button">Sample</button>
                         <button id="json-ast-clear-btn" class="action-btn secondary" type="button">Clear</button>
+                        <button id="json-ast-import-btn" class="action-btn primary" type="button">Import</button>
                     </div>
                 </div>
                 <div id="json-cst-inline-footer" class="json-cst-inline-footer" hidden>
@@ -162,6 +170,7 @@
 
                 <!-- Resultタブ：マッチ結果のテキスト表示 -->
                 <div class="tab-content active" id="tab-result">
+                    <div id="result-import-status" class="output-import-status" role="status" hidden></div>
                     <div id="result-area" class="result-area">
                         <div class="empty-state">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -217,6 +226,7 @@
                             </button>
                         </div>
                     </div>
+                    <div id="tree-viz-import-status" class="output-import-status" role="status" hidden></div>
                     <div id="tree-viz-json-ast-error" class="tree-viz-error" role="alert" hidden></div>
                     <div class="tree-viz-area">
                         <div class="empty-state">
@@ -737,6 +747,7 @@ function add(a, b) {
     <script src="lib/TreeMatchLib.js"></script>
     <script src="json-cst-import.js"></script>
     <script src="json-ast-import.js"></script>
+    <script src="target-import-state.js"></script>
     <script src="app.js?v=20251230-samples-final3"></script>
 </body>
 </html>
