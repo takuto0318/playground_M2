@@ -947,7 +947,42 @@ textarea::placeholder {
 
 .json-ast-structure-settings {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.45rem;
+}
+
+.json-ast-structure-option {
+    min-width: 0;
+    padding: 0.45rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+}
+
+.json-ast-structure-option h3 {
+    margin: 0 0 0.4rem;
+    font-size: 0.72rem;
+}
+
+.json-ast-structure-option .json-ast-option-line {
+    grid-template-columns: minmax(110px, 0.8fr) minmax(130px, 1.2fr);
+}
+
+.json-ast-structure-option .json-ast-option-line + .json-ast-option-line {
+    margin-top: 0.4rem;
+}
+
+.json-ast-structure-example {
+    margin: 0.45rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+}
+
+.json-ast-structure-example code {
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 700;
+    overflow-wrap: anywhere;
 }
 
 .json-cst-fixed-note,
@@ -1074,6 +1109,14 @@ textarea::placeholder {
     .json-ast-option-line {
         grid-template-columns: 1fr;
         gap: 0.25rem;
+    }
+
+    .json-ast-structure-settings {
+        grid-template-columns: 1fr;
+    }
+
+    .json-ast-structure-option .json-ast-option-line {
+        grid-template-columns: 1fr;
     }
 }
 

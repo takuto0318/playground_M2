@@ -8,6 +8,8 @@
         secondaryCandidates: Object.freeze(['name', 'value', 'operator', 'kind']),
         fieldNodeName: '__Field',
         listFieldNodeName: '__ListField',
+        fieldNodeRepresentation: 'node-name-primary',
+        listFieldNodeRepresentation: 'node-name-primary',
         classifyProperty: null,
     });
     const structuralNodeKinds = new WeakMap();
@@ -65,6 +67,10 @@
                 : DEFAULT_OPTIONS.secondaryCandidates.slice(),
             fieldNodeName: rawOptions.fieldNodeName ?? DEFAULT_OPTIONS.fieldNodeName,
             listFieldNodeName: rawOptions.listFieldNodeName ?? DEFAULT_OPTIONS.listFieldNodeName,
+            fieldNodeRepresentation: rawOptions.fieldNodeRepresentation
+                ?? DEFAULT_OPTIONS.fieldNodeRepresentation,
+            listFieldNodeRepresentation: rawOptions.listFieldNodeRepresentation
+                ?? DEFAULT_OPTIONS.listFieldNodeRepresentation,
             classifyProperty: rawOptions.classifyProperty ?? DEFAULT_OPTIONS.classifyProperty,
         };
     }
@@ -117,6 +123,15 @@
                 );
             }
             options[optionName] = options[optionName].trim();
+        }
+
+        for (const optionName of ['fieldNodeRepresentation', 'listFieldNodeRepresentation']) {
+            if (!['node-name-primary', 'property-name-primary'].includes(options[optionName])) {
+                throw new JsonAstImportError(
+                    `${optionName} must be node-name-primary or property-name-primary`,
+                    `$options.${optionName}`
+                );
+            }
         }
 
         if (options.classifyProperty !== null
@@ -387,7 +402,15 @@
         return attributes;
     }
 
-    function makeStructuralNode(TreeClass, primary, secondary, children, kind) {
+    function makeStructuralNode(TreeClass, options, kind, propertyName, children) {
+        const isField = kind === 'field';
+        const nodeName = isField ? options.fieldNodeName : options.listFieldNodeName;
+        const representation = isField
+            ? options.fieldNodeRepresentation
+            : options.listFieldNodeRepresentation;
+        const propertyNameIsPrimary = representation === 'property-name-primary';
+        const primary = propertyNameIsPrimary ? propertyName : nodeName;
+        const secondary = propertyNameIsPrimary ? nodeName : propertyName;
         const attributes = createTreeAttributes(
             TreeClass,
             primary,
@@ -396,14 +419,23 @@
             '$structural'
         );
         const node = new TreeClass.NodeClass(attributes, children);
-        structuralNodeKinds.set(node, kind);
+        structuralNodeKinds.set(node, Object.freeze({
+            kind,
+            propertyName,
+            nodeName,
+            representation,
+        }));
         return node;
     }
 
-    function getStructuralNodeKind(node) {
+    function getStructuralNodeInfo(node) {
         return node && typeof node === 'object'
             ? structuralNodeKinds.get(node) || null
             : null;
+    }
+
+    function getStructuralNodeKind(node) {
+        return getStructuralNodeInfo(node)?.kind || null;
     }
 
     function isStructuralNode(node) {
@@ -449,10 +481,10 @@
                 }
                 children.push(makeStructuralNode(
                     TreeClass,
-                    options.fieldNodeName,
+                    options,
+                    'field',
                     key,
-                    [child],
-                    'field'
+                    [child]
                 ));
                 continue;
             }
@@ -482,10 +514,10 @@
             }
             children.push(makeStructuralNode(
                 TreeClass,
-                options.listFieldNodeName,
+                options,
+                'list-field',
                 key,
-                listChildren,
-                'list-field'
+                listChildren
             ));
         }
 
@@ -522,6 +554,7 @@
         defaultClassifyProperty,
         createPropertyClassifier,
         classifyProperty,
+        getStructuralNodeInfo,
         getStructuralNodeKind,
         isStructuralNode,
         treeToPatternString,

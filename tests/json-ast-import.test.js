@@ -22,6 +22,12 @@ function childByField(root, fieldName) {
     return root.ChildNodeList().find(node => node && node.Attr1() === fieldName);
 }
 
+function childByStructuralProperty(root, propertyName) {
+    return root.ChildNodeList().find(node => (
+        JsonAstImport.getStructuralNodeInfo(node)?.propertyName === propertyName
+    ));
+}
+
 // Settings use the same trimmed names for conversion, persistence, summaries,
 // and sample generation. Whitespace inside a key remains significant.
 {
@@ -332,6 +338,100 @@ assert.throws(
     });
     assert.equal(childByField(root, 'item').Attr0(), 'FieldSlot');
     assert.equal(childByField(root, 'items'), undefined);
+}
+
+// Field and List field independently choose whether the configured node name
+// or the original property name becomes Primary.
+{
+    const input = {
+        type: 'Root',
+        left: { type: 'Identifier', name: 'x' },
+        right: { type: 'Identifier', name: 'y' },
+        items: [
+            { type: 'Identifier', name: 'a' },
+            null,
+            { type: 'Identifier', name: 'b' },
+        ],
+    };
+
+    const defaultTree = JsonAstImport.importJsonAst(input, TestTree);
+    const defaultRoot = defaultTree.GetRootNode();
+    assert.deepEqual(
+        defaultRoot.ChildNodeList().map(node => [node.Attr0(), node.Attr1()]),
+        [
+            ['__Field', 'left'],
+            ['__Field', 'right'],
+            ['__ListField', 'items'],
+        ]
+    );
+    assert.ok(TreeMatchFind(defaultTree, '.#left').length > 0);
+    assert.ok(TreeMatchFind(defaultTree, 'Identifier#x').length > 0);
+
+    const reversedTree = JsonAstImport.importJsonAst(input, TestTree, {
+        fieldNodeRepresentation: 'property-name-primary',
+        listFieldNodeRepresentation: 'property-name-primary',
+    });
+    const reversedRoot = reversedTree.GetRootNode();
+    assert.deepEqual(
+        reversedRoot.ChildNodeList().map(node => [node.Attr0(), node.Attr1()]),
+        [
+            ['left', '__Field'],
+            ['right', '__Field'],
+            ['items', '__ListField'],
+        ]
+    );
+    assert.ok(TreeMatchFind(reversedTree, 'left#"__Field"').length > 0);
+    assert.ok(TreeMatchFind(reversedTree, 'items#"__ListField"').length > 0);
+    assert.ok(TreeMatchFind(reversedTree, 'Identifier#x').length > 0);
+    assert.deepEqual(JsonAstImport.getStructuralNodeInfo(
+        childByStructuralProperty(reversedRoot, 'left')
+    ), {
+        kind: 'field',
+        propertyName: 'left',
+        nodeName: '__Field',
+        representation: 'property-name-primary',
+    });
+    assert.equal(childByStructuralProperty(reversedRoot, 'items').NthChildNode(1), null);
+
+    const fieldOnly = rootOf(input, {
+        fieldNodeRepresentation: 'property-name-primary',
+    });
+    assert.deepEqual(
+        fieldOnly.ChildNodeList().map(node => [node.Attr0(), node.Attr1()]),
+        [
+            ['left', '__Field'],
+            ['right', '__Field'],
+            ['__ListField', 'items'],
+        ]
+    );
+
+    const listOnly = rootOf(input, {
+        listFieldNodeRepresentation: 'property-name-primary',
+    });
+    assert.deepEqual(
+        listOnly.ChildNodeList().map(node => [node.Attr0(), node.Attr1()]),
+        [
+            ['__Field', 'left'],
+            ['__Field', 'right'],
+            ['items', '__ListField'],
+        ]
+    );
+
+    const customDefault = JsonAstImport.importJsonAst(input, TestTree, {
+        fieldNodeName: 'FieldSlot',
+        listFieldNodeName: 'ListSlot',
+    });
+    assert.ok(TreeMatchFind(customDefault, 'FieldSlot#left').length > 0);
+    assert.ok(TreeMatchFind(customDefault, 'ListSlot#items').length > 0);
+
+    const customNames = JsonAstImport.importJsonAst(input, TestTree, {
+        fieldNodeName: 'FieldSlot',
+        listFieldNodeName: 'ListSlot',
+        fieldNodeRepresentation: 'property-name-primary',
+        listFieldNodeRepresentation: 'property-name-primary',
+    });
+    assert.ok(TreeMatchFind(customNames, 'left#FieldSlot').length > 0);
+    assert.ok(TreeMatchFind(customNames, 'items#ListSlot').length > 0);
 }
 
 // A custom structural-node name may be identical to a real AST node type.

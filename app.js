@@ -49,6 +49,8 @@ let currentJsonAstSettings = {
     customFunction: DEFAULT_JSON_AST_CUSTOM_FUNCTION,
     fieldNodeName: '__Field',
     listFieldNodeName: '__ListField',
+    fieldNodeRepresentation: 'node-name-primary',
+    listFieldNodeRepresentation: 'node-name-primary',
 };
 let currentJsonAstImportOptions = buildJsonAstImportOptions(currentJsonAstSettings);
 let currentJsonCstImportOptions = JsonCstImport.cloneOptions();
@@ -66,6 +68,9 @@ let originalSvgHeight = 500;// SVG の元の高さ（ズームリセット時に
 // Code モード由来の TreeNode とソースコード範囲を対応付ける。
 // TreeConstruct 直接入力では範囲情報がないため、この Map は使われない。
 let nodeSourceRangeMap = new WeakMap();
+// Code -> JavaScript uses the legacy AST converter below. Mark only the
+// wrapper nodes it creates so same-named ordinary nodes stay distinguishable.
+const legacyAstStructuralNodes = new WeakSet();
 
 let temporaryNodeHighlightRect = null;
 let temporaryNodeHighlightTimer = null;
@@ -894,7 +899,7 @@ function isNumericText(value) {
     return /^-?\d+(?:\.\d+)?$/.test(String(value));
 }
 
-function formatPatternAttrValue(node) {
+function formatPatternAttrValue(node, options = {}) {
     const value = node.Attr1();
     if (value === undefined || value === null || value === '') return null;
 
@@ -908,19 +913,18 @@ function formatPatternAttrValue(node) {
         return JSON.stringify(text);
     }
 
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text) || isNumericText(text)) {
+    const identifierPattern = options.requireLetterStart
+        ? /^[A-Za-z][A-Za-z0-9_$]*$/
+        : /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+    if (identifierPattern.test(text) || isNumericText(text)) {
         return text;
     }
     return JSON.stringify(text);
 }
 
 function isStructuralFieldNode(node) {
-    if (JsonAstImport.isStructuralNode(node)) return true;
-
-    const type = node?.Attr0?.();
-    return type === '__Field'
-        || type === '__ListField'
-        || type === '__Null';
+    return JsonAstImport.isStructuralNode(node)
+        || legacyAstStructuralNodes.has(node);
 }
 
 function formatPatternNodeType(type) {
@@ -937,6 +941,13 @@ function nodeToPatternAtom(node, options = {}) {
     if (!node) return '';
 
     if (isStructuralFieldNode(node)) {
+        const structuralInfo = JsonAstImport.getStructuralNodeInfo(node);
+        if (structuralInfo?.representation === 'property-name-primary') {
+            const type = formatPatternNodeType(node.Attr0() || '');
+            // Secondary values beginning with "_" must be quoted in TreeMatch syntax.
+            const value = formatPatternAttrValue(node, { requireLetterStart: true });
+            return value === null ? type : `${type}#${value}`;
+        }
         const value = formatPatternAttrValue(node);
         return value === null ? '.' : `.#${value}`;
     }
@@ -2363,6 +2374,8 @@ function cloneJsonAstSettings(settings = currentJsonAstSettings) {
         customFunction: settings.customFunction,
         fieldNodeName: settings.fieldNodeName,
         listFieldNodeName: settings.listFieldNodeName,
+        fieldNodeRepresentation: settings.fieldNodeRepresentation,
+        listFieldNodeRepresentation: settings.listFieldNodeRepresentation,
     };
 }
 
@@ -2382,6 +2395,8 @@ function normalizeJsonAstSettings(settings) {
         keys,
         fieldNodeName: normalized.fieldNodeName,
         listFieldNodeName: normalized.listFieldNodeName,
+        fieldNodeRepresentation: normalized.fieldNodeRepresentation,
+        listFieldNodeRepresentation: normalized.listFieldNodeRepresentation,
     });
     normalized.primaryKey = normalizedOptions.keys.primary;
     normalized.secondaryKey = normalized.secondaryMode === 'key'
@@ -2389,6 +2404,8 @@ function normalizeJsonAstSettings(settings) {
         : normalized.secondaryKey.trim();
     normalized.fieldNodeName = normalizedOptions.fieldNodeName;
     normalized.listFieldNodeName = normalizedOptions.listFieldNodeName;
+    normalized.fieldNodeRepresentation = normalizedOptions.fieldNodeRepresentation;
+    normalized.listFieldNodeRepresentation = normalizedOptions.listFieldNodeRepresentation;
     return normalized;
 }
 
@@ -2405,6 +2422,8 @@ function buildJsonAstImportOptions(settings) {
         keys,
         fieldNodeName: normalized.fieldNodeName,
         listFieldNodeName: normalized.listFieldNodeName,
+        fieldNodeRepresentation: normalized.fieldNodeRepresentation,
+        listFieldNodeRepresentation: normalized.listFieldNodeRepresentation,
         classifyProperty: JsonAstImport.createPropertyClassifier({
             method: normalized.detectionMethod,
             rules: normalized.rules,
@@ -2432,6 +2451,8 @@ function getJsonAstSettingsFromDialog() {
         customFunction: document.getElementById('json-ast-custom-function').value,
         fieldNodeName: document.getElementById('json-ast-field-node-name').value,
         listFieldNodeName: document.getElementById('json-ast-list-field-node-name').value,
+        fieldNodeRepresentation: document.getElementById('json-ast-field-node-representation').value,
+        listFieldNodeRepresentation: document.getElementById('json-ast-list-field-node-representation').value,
     };
 }
 
@@ -2495,6 +2516,28 @@ function updateJsonAstDetectionVisibility() {
     document.getElementById('json-ast-custom-section').hidden = method !== 'custom';
 }
 
+function updateJsonAstStructuralExamples() {
+    const fieldName = document.getElementById('json-ast-field-node-name').value.trim()
+        || '__Field';
+    const listFieldName = document.getElementById('json-ast-list-field-node-name').value.trim()
+        || '__ListField';
+    const fieldRepresentation = document.getElementById(
+        'json-ast-field-node-representation'
+    ).value;
+    const listFieldRepresentation = document.getElementById(
+        'json-ast-list-field-node-representation'
+    ).value;
+
+    document.getElementById('json-ast-field-node-example').textContent =
+        fieldRepresentation === 'property-name-primary'
+            ? `left#${fieldName}`
+            : `${fieldName}#left`;
+    document.getElementById('json-ast-list-field-node-example').textContent =
+        listFieldRepresentation === 'property-name-primary'
+            ? `items#${listFieldName}`
+            : `${listFieldName}#items`;
+}
+
 function setJsonAstOptionsInDialog(settings) {
     const normalized = normalizeJsonAstSettings(settings);
     const primaryInput = document.getElementById('json-ast-primary-key');
@@ -2509,9 +2552,14 @@ function setJsonAstOptionsInDialog(settings) {
     document.getElementById('json-ast-custom-function').value = normalized.customFunction;
     document.getElementById('json-ast-field-node-name').value = normalized.fieldNodeName;
     document.getElementById('json-ast-list-field-node-name').value = normalized.listFieldNodeName;
+    document.getElementById('json-ast-field-node-representation').value =
+        normalized.fieldNodeRepresentation;
+    document.getElementById('json-ast-list-field-node-representation').value =
+        normalized.listFieldNodeRepresentation;
     renderJsonAstRules(normalized.rules);
     updateJsonAstSecondaryKeyVisibility();
     updateJsonAstDetectionVisibility();
+    updateJsonAstStructuralExamples();
 }
 
 function updateJsonAstOptionsSummary(settings = currentJsonAstSettings) {
@@ -2649,6 +2697,16 @@ function setupJsonAstImport() {
         'change',
         updateJsonAstDetectionVisibility
     );
+    for (const id of [
+        'json-ast-field-node-name',
+        'json-ast-list-field-node-name',
+        'json-ast-field-node-representation',
+        'json-ast-list-field-node-representation',
+    ]) {
+        const element = document.getElementById(id);
+        element.addEventListener('input', updateJsonAstStructuralExamples);
+        element.addEventListener('change', updateJsonAstStructuralExamples);
+    }
     document.getElementById('json-ast-add-rule-btn').addEventListener('click', addJsonAstRule);
     document.getElementById('json-ast-rules-list').addEventListener('click', event => {
         const button = event.target.closest('.json-ast-rule-remove');
@@ -4753,6 +4811,7 @@ function importJsonAstNodeToTreeNode(jsonNode, TreeClass, options = AST_FIELD_IM
         if (kind === 'field') {
             const childNode = importJsonAstNodeToTreeNode(value, TreeClass, options);
             const fieldNode = makeTreeNode(TreeClass, options.fieldNodeName, key, [childNode]);
+            legacyAstStructuralNodes.add(fieldNode);
             setNodeRangeFromChildren(fieldNode, [childNode]);
             children.push(fieldNode);
             continue;
@@ -4763,6 +4822,7 @@ function importJsonAstNodeToTreeNode(jsonNode, TreeClass, options = AST_FIELD_IM
                 .filter(item => isAstLikeObject(item, options.nameKey))
                 .map(item => importJsonAstNodeToTreeNode(item, TreeClass, options));
             const listFieldNode = makeTreeNode(TreeClass, options.listFieldNodeName, key, listChildren);
+            legacyAstStructuralNodes.add(listFieldNode);
             setNodeRangeFromChildren(listFieldNode, listChildren);
             children.push(listFieldNode);
             continue;
@@ -4771,6 +4831,8 @@ function importJsonAstNodeToTreeNode(jsonNode, TreeClass, options = AST_FIELD_IM
         if (kind === 'null') {
             const nullNode = makeTreeNode(TreeClass, options.nullNodeName, key, []);
             const fieldNode = makeTreeNode(TreeClass, options.fieldNodeName, key, [nullNode]);
+            legacyAstStructuralNodes.add(nullNode);
+            legacyAstStructuralNodes.add(fieldNode);
             children.push(fieldNode);
         }
     }

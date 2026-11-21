@@ -629,14 +629,36 @@ function add(a, b) {
                     <small>Return attribute, node, node-list, or ignore.</small>
                 </section>
                 <div class="json-ast-structure-settings">
-                    <label class="json-ast-option-line">
-                        <span>Field node name</span>
-                        <input id="json-ast-field-node-name" type="text" value="__Field">
-                    </label>
-                    <label class="json-ast-option-line">
-                        <span>List field node name</span>
-                        <input id="json-ast-list-field-node-name" type="text" value="__ListField">
-                    </label>
+                    <section class="json-ast-structure-option">
+                        <h3>Field</h3>
+                        <label class="json-ast-option-line">
+                            <span>Node name</span>
+                            <input id="json-ast-field-node-name" type="text" value="__Field">
+                        </label>
+                        <label class="json-ast-option-line">
+                            <span>Primary / Secondary</span>
+                            <select id="json-ast-field-node-representation">
+                                <option value="node-name-primary" selected>Node name / Property name</option>
+                                <option value="property-name-primary">Property name / Node name</option>
+                            </select>
+                        </label>
+                        <p class="json-ast-structure-example">Example: <code id="json-ast-field-node-example">__Field#left</code></p>
+                    </section>
+                    <section class="json-ast-structure-option">
+                        <h3>List field</h3>
+                        <label class="json-ast-option-line">
+                            <span>Node name</span>
+                            <input id="json-ast-list-field-node-name" type="text" value="__ListField">
+                        </label>
+                        <label class="json-ast-option-line">
+                            <span>Primary / Secondary</span>
+                            <select id="json-ast-list-field-node-representation">
+                                <option value="node-name-primary" selected>Node name / Property name</option>
+                                <option value="property-name-primary">Property name / Node name</option>
+                            </select>
+                        </label>
+                        <p class="json-ast-structure-example">Example: <code id="json-ast-list-field-node-example">__ListField#items</code></p>
+                    </section>
                 </div>
             </div>
             <p id="json-ast-options-error" class="json-cst-error" role="alert" hidden></p>
