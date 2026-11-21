@@ -1,0 +1,50 @@
+{
+  "parser": {
+    "name": "acorn",
+    "version": "8.8.1",
+    "options": {
+      "ecmaVersion": 2020,
+      "sourceType": "module",
+      "locations": true
+    }
+  },
+  "regenerationCommand": "node tests/generate-json-ast-acorn-fixtures.js",
+  "fixtures": [
+    {
+      "name": "01-basic-variable",
+      "description": "Basic variable declaration",
+      "sourceFile": "01-basic-variable.js",
+      "astFile": "01-basic-variable.json"
+    },
+    {
+      "name": "02-property-value",
+      "description": "Object Property.value is an AST child node",
+      "sourceFile": "02-property-value.js",
+      "astFile": "02-property-value.json"
+    },
+    {
+      "name": "03-array-hole",
+      "description": "ArrayExpression with an empty element",
+      "sourceFile": "03-array-hole.js",
+      "astFile": "03-array-hole.json"
+    },
+    {
+      "name": "04-if-call",
+      "description": "Conditional branches and function calls",
+      "sourceFile": "04-if-call.js",
+      "astFile": "04-if-call.json"
+    },
+    {
+      "name": "05-function-calls",
+      "description": "Function declaration, parameters, and method call",
+      "sourceFile": "05-function-calls.js",
+      "astFile": "05-function-calls.json"
+    },
+    {
+      "name": "06-large-generated",
+      "description": "Large reproducible input for Tree View scrolling",
+      "sourceFile": "06-large-generated.js",
+      "astFile": "06-large-generated.json"
+    }
+  ]
+}
