@@ -1215,14 +1215,14 @@ function importStatusPresentation(state) {
     }
     if (state.status === TargetImportState.STATUS.DIRTY) {
         const message = '変更あり・再取り込みが必要です。結果は最後に正常に取り込んだ木に対するものです。';
-        return { label: message, output: message };
+        return { label: '変更あり・再取り込みが必要', output: message };
     }
     if (state.status === TargetImportState.STATUS.FAILED) {
         const previous = state.tree
             ? '前回成功時の木を表示しています。'
             : '表示できる取り込み済みの木はありません。';
         const message = `取り込み失敗: ${state.error}\n${previous}`;
-        return { label: message, output: message };
+        return { label: '取り込み失敗', output: message };
     }
     return { label: '未取り込み', output: null };
 }
@@ -2289,11 +2289,15 @@ function setTreeOrientation(orientation) {
 // TreeConstruct 直接入力と JavaScript コード入力を切り替える。
 const TARGET_SOURCE_HELP = {
     treeconstruct: 'TreeConstruct形式でターゲット木を直接入力します。例: Program > FunctionDeclaration > Identifier#test',
-    code:          'JavaScriptコードを入力し、ImportでASTへ変換します。',
-    c:             'Cコードを入力し、Importで簡易Cパーサの構文木へ変換します。',
-    json:          'JSON ASTを入力し、Importで設定に従った木へ変換します。',
-    'json-cst':    'JSON Syntax Treeを入力し、Importで設定に従った木へ変換します。',
 };
+
+function targetSourceHelpText(source, language = currentTargetCodeLang) {
+    if (source === 'treeconstruct') return TARGET_SOURCE_HELP.treeconstruct;
+    if (source === 'code' && language !== 'javascript' && language !== 'c') {
+        return `${language} code target mode is not implemented yet.`;
+    }
+    return '';
+}
 
 function persistCurrentTargetInput() {
     if (!isImportTargetSource()) {
@@ -2450,14 +2454,9 @@ function setActiveTargetSource(source) {
 
     const helpEl = document.getElementById('target-source-help');
     if (helpEl) {
-        helpEl.textContent = source === 'code'
-            ? currentTargetCodeLang === 'c'
-                ? TARGET_SOURCE_HELP.c
-                : currentTargetCodeLang === 'javascript'
-                ? TARGET_SOURCE_HELP.code
-                : `${currentTargetCodeLang} code target mode is not implemented yet.`
-            : TARGET_SOURCE_HELP[source] ?? '';
-        helpEl.hidden = false;
+        const helpText = targetSourceHelpText(source);
+        helpEl.textContent = helpText;
+        helpEl.hidden = !helpText;
     }
     setCodeImportFooterVisible(source === 'code');
     setJsonAstPanelVisible(source === 'json');

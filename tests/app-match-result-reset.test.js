@@ -64,4 +64,62 @@ assert.doesNotMatch(
     'Editing an import draft must preserve the previous imported tree result'
 );
 
+const statusPresentationSource = extractFunction('importStatusPresentation');
+const statusContext = {
+    TargetImportState: {
+        STATUS: {
+            IMPORTED: 'imported',
+            DIRTY: 'dirty',
+            FAILED: 'failed',
+        },
+    },
+};
+vm.runInNewContext(`
+    ${statusPresentationSource}
+    importedPresentation = importStatusPresentation({ status: 'imported' });
+    dirtyPresentation = importStatusPresentation({ status: 'dirty', tree: {} });
+    failedPresentation = importStatusPresentation({
+        status: 'failed',
+        tree: {},
+        error: '$.items[1] is invalid'
+    });
+    emptyFailedPresentation = importStatusPresentation({
+        status: 'failed',
+        tree: null,
+        error: 'invalid JSON'
+    });
+    unimportedPresentation = importStatusPresentation({ status: 'unimported' });
+`, statusContext);
+assert.equal(statusContext.importedPresentation.label, '取り込み済み');
+assert.equal(statusContext.importedPresentation.output, null);
+assert.equal(statusContext.dirtyPresentation.label, '変更あり・再取り込みが必要');
+assert.match(statusContext.dirtyPresentation.output, /最後に正常に取り込んだ木/);
+assert.equal(statusContext.failedPresentation.label, '取り込み失敗');
+assert.match(statusContext.failedPresentation.output, /\$\.items\[1\] is invalid/);
+assert.match(statusContext.failedPresentation.output, /前回成功時の木を表示/);
+assert.match(statusContext.emptyFailedPresentation.output, /表示できる取り込み済みの木はありません/);
+assert.equal(statusContext.unimportedPresentation.label, '未取り込み');
+
+const helpTextSource = extractFunction('targetSourceHelpText');
+const helpContext = {
+    TARGET_SOURCE_HELP: {
+        treeconstruct: 'TreeConstruct help',
+    },
+};
+vm.runInNewContext(`
+    ${helpTextSource}
+    treeHelp = targetSourceHelpText('treeconstruct', 'javascript');
+    jsHelp = targetSourceHelpText('code', 'javascript');
+    cHelp = targetSourceHelpText('code', 'c');
+    jsonHelp = targetSourceHelpText('json', 'javascript');
+    cstHelp = targetSourceHelpText('json-cst', 'javascript');
+    pythonHelp = targetSourceHelpText('code', 'python');
+`, helpContext);
+assert.equal(helpContext.treeHelp, 'TreeConstruct help');
+assert.equal(helpContext.jsHelp, '');
+assert.equal(helpContext.cHelp, '');
+assert.equal(helpContext.jsonHelp, '');
+assert.equal(helpContext.cstHelp, '');
+assert.match(helpContext.pythonHelp, /not implemented yet/);
+
 console.log('app match result reset tests: passed');
